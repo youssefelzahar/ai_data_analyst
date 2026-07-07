@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getHealth } from "@/services/api";
 import type { HealthResponse } from "@/types/health";
 
@@ -67,6 +68,13 @@ export default function HomePage() {
           </p>
         )}
       </section>
+
+      <Link
+        href="/data-sources"
+        className="rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium hover:bg-sky-500"
+      >
+        Manage Data Sources →
+      </Link>
     </main>
   );
 }

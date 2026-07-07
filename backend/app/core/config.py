@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     # JSON list in env, e.g. CORS_ORIGINS=["http://localhost:3000"]
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Application metadata store (data source registry, not user data).
+    # SQLite by default for local development; PostgreSQL in Docker/production.
+    database_url: str = "sqlite:///./ai_data_analyst.db"
+
+    # Symmetric key used to encrypt stored data source credentials.
+    secret_key: str = "change-me-in-production"
+
+    upload_directory: str = "./uploaded_files"
+    max_upload_size_mb: int = 200
+
 
 @lru_cache
 def get_settings() -> Settings:

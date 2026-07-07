@@ -16,6 +16,10 @@ next-env.d.ts
 .env.local
 .env.*.local
 
+# Local data — never commit user datasets or the dev database
+uploaded_files/
+*.db
+
 # OS / editor
 .DS_Store
 Thumbs.db

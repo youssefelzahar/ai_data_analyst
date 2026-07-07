@@ -1,11 +1,33 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ai_data_analyst
+      POSTGRES_PASSWORD: ai_data_analyst
+      POSTGRES_DB: ai_data_analyst
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_data_analyst"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     ports:
       - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://ai_data_analyst:ai_data_analyst@db:5432/ai_data_analyst
+      UPLOAD_DIRECTORY: /app/uploaded_files
     env_file:
       - path: ./backend/.env
         required: false
+    volumes:
+      - uploaded_files:/app/uploaded_files
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -31,3 +53,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploaded_files:
