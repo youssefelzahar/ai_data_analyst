@@ -6,19 +6,45 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.database import get_database_session
 from app.repositories.data_source_repository import DataSourceRepository
+from app.schemas.data_profile_schema import DataProfileResponse, OutlierRowsResponse
 from app.schemas.data_source_schema import (
     ConnectionTestResult,
     DataSourceResponse,
     DataSourceType,
+    DatasetPreviewResponse,
     SqlServerConnectionCreate,
 )
+from app.services.dataset_preview_service import DatasetPreviewService
 from app.services.file_upload_service import FileUploadService
-from app.services.sql_server_connection_service import SqlServerConnectionService
+from app.services.profiling.loaders import DatasetLoadError, DatasetLoader, UnsupportedDataSourceError
+from app.services.profiling.outliers import UnknownOutlierMethodError
+from app.services.profiling.service import (
+    DataProfileService,
+    MissingTableNameError,
+    NonNumericColumnError,
+    UnknownColumnError,
+    UnknownTableError,
+)
+from app.services.sql_server_connection_service import (
+    SqlServerConnectionService,
+    SqlServerDriverNotFoundError,
+    SqlServerQueryError,
+)
 from app.storage.base import FileTooLargeError
 from app.storage.local import LocalFileStorage
 from app.validators.file_upload_validator import FileUploadValidator, UploadValidationError
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
+
+_BAD_REQUEST_ERRORS = (
+    UnsupportedDataSourceError,
+    MissingTableNameError,
+    UnknownTableError,
+    UnknownColumnError,
+    NonNumericColumnError,
+    UnknownOutlierMethodError,
+)
+_UNPROCESSABLE_ERRORS = (DatasetLoadError, SqlServerDriverNotFoundError, SqlServerQueryError)
 
 
 def get_data_source_repository(
@@ -43,6 +69,36 @@ def get_sql_server_connection_service(
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
 ) -> SqlServerConnectionService:
     return SqlServerConnectionService(data_source_repository)
+
+
+def get_dataset_loader(
+    settings: Annotated[Settings, Depends(get_settings)],
+    sql_server_connection_service: Annotated[
+        SqlServerConnectionService, Depends(get_sql_server_connection_service)
+    ],
+) -> DatasetLoader:
+    return DatasetLoader(
+        file_storage=LocalFileStorage(settings.upload_directory),
+        sql_server_connection_service=sql_server_connection_service,
+    )
+
+
+def get_dataset_preview_service(
+    dataset_loader: Annotated[DatasetLoader, Depends(get_dataset_loader)],
+) -> DatasetPreviewService:
+    return DatasetPreviewService(dataset_loader=dataset_loader)
+
+
+def get_data_profile_service(
+    dataset_loader: Annotated[DatasetLoader, Depends(get_dataset_loader)],
+    sql_server_connection_service: Annotated[
+        SqlServerConnectionService, Depends(get_sql_server_connection_service)
+    ],
+) -> DataProfileService:
+    return DataProfileService(
+        dataset_loader=dataset_loader,
+        sql_server_connection_service=sql_server_connection_service,
+    )
 
 
 @router.post(
@@ -119,6 +175,103 @@ def get_data_source_by_id(
     if data_source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
     return DataSourceResponse.model_validate(data_source)
+
+
+@router.get("/{data_source_id}/tables", response_model=list[str])
+def list_data_source_tables(
+    data_source_id: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_server_connection_service: Annotated[
+        SqlServerConnectionService, Depends(get_sql_server_connection_service)
+    ],
+) -> list[str]:
+    """List the tables available in a SQL Server data source's database."""
+    data_source = data_source_repository.get_data_source_by_id(data_source_id)
+    if data_source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    if data_source.source_type != DataSourceType.SQL_SERVER.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Listing tables is only available for SQL Server data sources.",
+        )
+    try:
+        return sql_server_connection_service.list_tables(data_source)
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.get("/{data_source_id}/preview", response_model=DatasetPreviewResponse)
+def preview_data_source(
+    data_source_id: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    dataset_preview_service: Annotated[DatasetPreviewService, Depends(get_dataset_preview_service)],
+    preview_row_count: int = 10,
+) -> DatasetPreviewResponse:
+    """Read the underlying file and return its shape, columns, dtypes, and a sample of rows."""
+    data_source = data_source_repository.get_data_source_by_id(data_source_id)
+    if data_source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    try:
+        return dataset_preview_service.get_preview(data_source, preview_row_count)
+    except UnsupportedDataSourceError as unsupported_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(unsupported_error)
+        ) from unsupported_error
+    except DatasetLoadError as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.get("/{data_source_id}/profile", response_model=DataProfileResponse)
+def profile_data_source(
+    data_source_id: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
+    table_name: str | None = None,
+) -> DataProfileResponse:
+    """Build a full statistical profile: overview, columns, numeric/categorical stats,
+    data-quality checks, and outlier reports — for a file or a SQL Server table."""
+    data_source = data_source_repository.get_data_source_by_id(data_source_id)
+    if data_source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    try:
+        return data_profile_service.get_profile(data_source, table_name)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.get("/{data_source_id}/profile/outliers", response_model=OutlierRowsResponse)
+def get_data_source_outlier_rows(
+    data_source_id: str,
+    column_name: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
+    table_name: str | None = None,
+    method: str = "iqr",
+) -> OutlierRowsResponse:
+    """Return the actual rows flagged as outliers for one numeric column."""
+    data_source = data_source_repository.get_data_source_by_id(data_source_id)
+    if data_source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    try:
+        return data_profile_service.get_outlier_rows(data_source, column_name, table_name, method)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
 
 
 @router.delete("/{data_source_id}", status_code=status.HTTP_204_NO_CONTENT)

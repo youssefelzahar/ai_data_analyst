@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   createSqlServerConnection,
   deleteDataSource,
@@ -268,12 +269,20 @@ export default function SqlServerConnectionPanel() {
                       : `SQL Server Authentication (${savedConnection.username})`}
                   </p>
                 </div>
-                <button
-                  onClick={() => void handleDeleteConnection(savedConnection.id)}
-                  className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-800 hover:text-red-400"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <Link
+                    href={`/data-sources/${savedConnection.id}/profile`}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+                  >
+                    Profile
+                  </Link>
+                  <button
+                    onClick={() => void handleDeleteConnection(savedConnection.id)}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-800 hover:text-red-400"
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

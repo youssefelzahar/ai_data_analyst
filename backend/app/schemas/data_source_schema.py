@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -62,3 +63,14 @@ class DataSourceResponse(BaseModel):
     database_name: str | None = None
     authentication_type: AuthenticationType | None = None
     username: str | None = None
+
+
+class DatasetPreviewResponse(BaseModel):
+    """A snapshot of an uploaded dataset's shape and sample rows."""
+
+    row_count: int
+    column_count: int
+    column_names: list[str]
+    dtypes: dict[str, str]
+    missing_value_counts: dict[str, int]
+    preview_rows: list[dict[str, Any]]

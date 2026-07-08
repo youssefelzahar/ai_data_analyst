@@ -11,6 +11,10 @@ export function listDataSources(sourceType?: DataSourceType): Promise<DataSource
   return request<DataSource[]>(`/data-sources${query}`);
 }
 
+export function getDataSource(dataSourceId: string): Promise<DataSource> {
+  return request<DataSource>(`/data-sources/${dataSourceId}`);
+}
+
 export function deleteDataSource(dataSourceId: string): Promise<void> {
   return request<void>(`/data-sources/${dataSourceId}`, { method: "DELETE" });
 }

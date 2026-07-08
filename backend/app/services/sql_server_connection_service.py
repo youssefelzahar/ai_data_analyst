@@ -2,7 +2,7 @@ import logging
 
 import pyodbc
 
-from app.core.encryption import encrypt_secret
+from app.core.encryption import decrypt_secret, encrypt_secret
 from app.db.models.data_source_model import DataSource
 from app.repositories.data_source_repository import DataSourceRepository
 from app.schemas.data_source_schema import (
@@ -27,6 +27,10 @@ _PREFERRED_ODBC_DRIVERS = (
 
 class SqlServerDriverNotFoundError(Exception):
     """Raised when no SQL Server ODBC driver is installed on the host."""
+
+
+class SqlServerQueryError(Exception):
+    """Raised when a query against a saved SQL Server connection fails."""
 
 
 def _select_installed_odbc_driver() -> str:
@@ -62,6 +66,40 @@ class SqlServerConnectionService:
 
     def __init__(self, data_source_repository: DataSourceRepository) -> None:
         self._data_source_repository = data_source_repository
+
+    def build_connection_string(self, data_source: DataSource) -> str:
+        """Build an ODBC connection string from a saved SQL Server data source."""
+        connection_parts = [
+            f"DRIVER={{{_select_installed_odbc_driver()}}}",
+            f"SERVER={data_source.server_host}",
+            f"DATABASE={data_source.database_name}",
+            "TrustServerCertificate=yes",
+        ]
+        if data_source.authentication_type == AuthenticationType.WINDOWS.value:
+            connection_parts.append("Trusted_Connection=yes")
+        else:
+            connection_parts.append(f"UID={data_source.username}")
+            password = decrypt_secret(data_source.encrypted_password) if data_source.encrypted_password else ""
+            connection_parts.append(f"PWD={password}")
+        return ";".join(connection_parts)
+
+    def list_tables(self, data_source: DataSource) -> list[str]:
+        """List base table names available in the connected database."""
+        try:
+            connection_string = self.build_connection_string(data_source)
+        except SqlServerDriverNotFoundError:
+            raise
+
+        try:
+            with pyodbc.connect(connection_string, timeout=_CONNECTION_TIMEOUT_SECONDS) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                    "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
+                )
+                return [row.TABLE_NAME for row in cursor.fetchall()]
+        except pyodbc.Error as query_error:
+            raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
 
     def test_data_source_connection(
         self, connection_config: SqlServerConnectionCreate

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   deleteDataSource,
   listDataSources,
@@ -176,12 +177,26 @@ export default function FileUploadPanel() {
                     {formatUploadDate(uploadedDataset.created_at)}
                   </p>
                 </div>
-                <button
-                  onClick={() => void handleDelete(uploadedDataset.id)}
-                  className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-800 hover:text-red-400"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <Link
+                    href={`/data-sources/${uploadedDataset.id}/preview`}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+                  >
+                    Preview
+                  </Link>
+                  <Link
+                    href={`/data-sources/${uploadedDataset.id}/profile`}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+                  >
+                    Profile
+                  </Link>
+                  <button
+                    onClick={() => void handleDelete(uploadedDataset.id)}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-800 hover:text-red-400"
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
