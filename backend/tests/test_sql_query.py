@@ -10,6 +10,7 @@ from app.services.sql_query_service import (
     SqlQueryService,
     ensure_read_only,
 )
+from app.storage.base import FileTooLargeError
 
 
 class _StubConnectionService:
@@ -207,3 +208,22 @@ def test_query_endpoint_unknown_source_returns_404(api_client) -> None:
         json={"sql": "SELECT 1"},
     )
     assert response.status_code == 404
+
+
+def test_convert_query_endpoint_returns_413_when_saved_result_exceeds_upload_limit(
+    api_client, monkeypatch
+) -> None:
+    data_source_id = _create_sql_server_source(api_client)
+
+    def _raise_file_too_large(*args, **kwargs):
+        del args, kwargs
+        raise FileTooLargeError(1024)
+
+    monkeypatch.setattr(SqlQueryService, "convert_query_to_dataset", _raise_file_too_large)
+
+    response = api_client.post(
+        f"/api/v1/data-sources/{data_source_id}/query/convert",
+        json={"sql": "SELECT 1"},
+    )
+    assert response.status_code == 413
+    assert "maximum allowed size" in response.json()["detail"]

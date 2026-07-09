@@ -364,6 +364,10 @@ def convert_data_source_query_to_dataset(
     data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
     try:
         return sql_query_service.convert_query_to_dataset(data_source, query_request.sql)
+    except FileTooLargeError as size_error:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(size_error)
+        ) from size_error
     except _BAD_REQUEST_ERRORS as bad_request_error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
