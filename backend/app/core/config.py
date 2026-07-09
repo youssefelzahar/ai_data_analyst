@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +32,13 @@ class Settings(BaseSettings):
 
     upload_directory: str = "./uploaded_files"
     max_upload_size_mb: int = 200
+
+    # --- AI / LLM settings ---
+    ai_provider: str = "ollama"
+    ai_default_model: str = "llama3.1:8b"
+    ai_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    ai_request_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    ollama_base_url: str = "http://localhost:11434"
 
 
 @lru_cache

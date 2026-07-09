@@ -1,5 +1,6 @@
 import logging
 
+import pandas as pd
 import pyodbc
 
 from app.core.encryption import decrypt_secret, encrypt_secret
@@ -15,6 +16,7 @@ from app.schemas.data_source_schema import (
 logger = logging.getLogger(__name__)
 
 _CONNECTION_TIMEOUT_SECONDS = 5
+_QUERY_TIMEOUT_SECONDS = 30
 
 # Newest driver first; fall back to whatever the host has installed.
 _PREFERRED_ODBC_DRIVERS = (
@@ -98,6 +100,19 @@ class SqlServerConnectionService:
                     "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
                 )
                 return [row.TABLE_NAME for row in cursor.fetchall()]
+        except pyodbc.Error as query_error:
+            raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
+
+    def run_query(self, data_source: DataSource, sql: str) -> pd.DataFrame:
+        """Execute a SQL query against a saved connection and return the rows as a DataFrame.
+
+        The caller is responsible for enforcing read-only access; this method
+        runs whatever SQL it is given.
+        """
+        connection_string = self.build_connection_string(data_source)
+        try:
+            with pyodbc.connect(connection_string, timeout=_QUERY_TIMEOUT_SECONDS) as connection:
+                return pd.read_sql(sql, connection)
         except pyodbc.Error as query_error:
             raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
 

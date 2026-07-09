@@ -271,6 +271,12 @@ export default function SqlServerConnectionPanel() {
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <Link
+                    href={`/data-sources/${savedConnection.id}/query`}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+                  >
+                    SQL Editor
+                  </Link>
+                  <Link
                     href={`/data-sources/${savedConnection.id}/profile`}
                     className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
                   >

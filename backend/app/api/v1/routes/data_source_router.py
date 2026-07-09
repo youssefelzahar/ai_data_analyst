@@ -14,6 +14,11 @@ from app.schemas.data_source_schema import (
     DatasetPreviewResponse,
     SqlServerConnectionCreate,
 )
+from app.schemas.sql_query_schema import (
+    QueryAnalysisResponse,
+    QueryResultResponse,
+    SqlQueryRequest,
+)
 from app.services.dataset_preview_service import DatasetPreviewService
 from app.services.file_upload_service import FileUploadService
 from app.services.profiling.loaders import DatasetLoadError, DatasetLoader, UnsupportedDataSourceError
@@ -25,6 +30,7 @@ from app.services.profiling.service import (
     UnknownColumnError,
     UnknownTableError,
 )
+from app.services.sql_query_service import NonSelectStatementError, SqlQueryService
 from app.services.sql_server_connection_service import (
     SqlServerConnectionService,
     SqlServerDriverNotFoundError,
@@ -43,6 +49,7 @@ _BAD_REQUEST_ERRORS = (
     UnknownColumnError,
     NonNumericColumnError,
     UnknownOutlierMethodError,
+    NonSelectStatementError,
 )
 _UNPROCESSABLE_ERRORS = (DatasetLoadError, SqlServerDriverNotFoundError, SqlServerQueryError)
 
@@ -98,6 +105,20 @@ def get_data_profile_service(
     return DataProfileService(
         dataset_loader=dataset_loader,
         sql_server_connection_service=sql_server_connection_service,
+    )
+
+
+def get_sql_query_service(
+    sql_server_connection_service: Annotated[
+        SqlServerConnectionService, Depends(get_sql_server_connection_service)
+    ],
+    data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
+    file_upload_service: Annotated[FileUploadService, Depends(get_file_upload_service)],
+) -> SqlQueryService:
+    return SqlQueryService(
+        sql_server_connection_service=sql_server_connection_service,
+        data_profile_service=data_profile_service,
+        file_upload_service=file_upload_service,
     )
 
 
@@ -264,6 +285,85 @@ def get_data_source_outlier_rows(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
     try:
         return data_profile_service.get_outlier_rows(data_source, column_name, table_name, method)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+def _require_sql_server_data_source(data_source_repository: DataSourceRepository, data_source_id: str):
+    data_source = data_source_repository.get_data_source_by_id(data_source_id)
+    if data_source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    if data_source.source_type != DataSourceType.SQL_SERVER.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Running queries is only available for SQL Server data sources.",
+        )
+    return data_source
+
+
+@router.post("/{data_source_id}/query", response_model=QueryResultResponse)
+def run_data_source_query(
+    data_source_id: str,
+    query_request: SqlQueryRequest,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+) -> QueryResultResponse:
+    """Execute a read-only SELECT query and return a row-capped result grid."""
+    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.execute_query(data_source, query_request.sql)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.post("/{data_source_id}/query/analyze", response_model=QueryAnalysisResponse)
+def analyze_data_source_query(
+    data_source_id: str,
+    query_request: SqlQueryRequest,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+) -> QueryAnalysisResponse:
+    """Run the query via pd.read_sql and return the standard preview + profile."""
+    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.analyze_query(data_source, query_request.sql)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.post(
+    "/{data_source_id}/query/convert",
+    response_model=DataSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def convert_data_source_query_to_dataset(
+    data_source_id: str,
+    query_request: SqlQueryRequest,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+) -> DataSourceResponse:
+    """Run the query and save the result as a file data source for preview/profile workflows."""
+    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.convert_query_to_dataset(data_source, query_request.sql)
     except _BAD_REQUEST_ERRORS as bad_request_error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)

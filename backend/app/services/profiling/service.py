@@ -51,7 +51,26 @@ class DataProfileService:
 
     def get_profile(self, data_source: DataSource, table_name: str | None = None) -> DataProfileResponse:
         dataframe = self._load_dataframe(data_source, table_name)
-        return self._build_profile(data_source, dataframe)
+        return self._build_profile(
+            dataframe,
+            dataset_name=data_source.name,
+            source_type=data_source.source_type,
+            dataset_size_bytes=data_source.file_size_bytes,
+        )
+
+    def build_profile_from_dataframe(
+        self,
+        dataframe: pd.DataFrame,
+        dataset_name: str,
+        source_type: str,
+    ) -> DataProfileResponse:
+        """Profile an arbitrary in-memory DataFrame (e.g. an ad-hoc query result)."""
+        return self._build_profile(
+            dataframe,
+            dataset_name=dataset_name,
+            source_type=source_type,
+            dataset_size_bytes=None,
+        )
 
     def get_outlier_rows(
         self,
@@ -94,7 +113,13 @@ class DataProfileService:
 
         return self._dataset_loader.load(data_source, table_name)
 
-    def _build_profile(self, data_source: DataSource, dataframe: pd.DataFrame) -> DataProfileResponse:
+    def _build_profile(
+        self,
+        dataframe: pd.DataFrame,
+        dataset_name: str,
+        source_type: str,
+        dataset_size_bytes: int | None,
+    ) -> DataProfileResponse:
         row_count, column_count = dataframe.shape
 
         columns = [build_column_profile(dataframe[name], name) for name in dataframe.columns]
@@ -115,13 +140,13 @@ class DataProfileService:
         ]
 
         overview = DatasetOverview(
-            dataset_name=data_source.name,
-            source_type=data_source.source_type,
+            dataset_name=dataset_name,
+            source_type=source_type,
             row_count=row_count,
             column_count=column_count,
             shape=(row_count, column_count),
             memory_usage_bytes=int(dataframe.memory_usage(deep=True).sum()),
-            dataset_size_bytes=data_source.file_size_bytes,
+            dataset_size_bytes=dataset_size_bytes,
             total_missing_values=int(dataframe.isna().sum().sum()),
             total_duplicate_rows=int(dataframe.duplicated().sum()),
             numeric_column_count=len(numeric_statistics),
