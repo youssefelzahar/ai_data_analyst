@@ -274,7 +274,7 @@ export default function SqlServerConnectionPanel() {
                     href={`/data-sources/${savedConnection.id}/query`}
                     className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
                   >
-                    SQL Editor
+                    Database Explorer
                   </Link>
                   <Link
                     href={`/data-sources/${savedConnection.id}/profile`}

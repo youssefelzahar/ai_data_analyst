@@ -29,8 +29,7 @@ cd backend
 # First time only: create venv, install deps, create .env
 python -m venv .venv
 .venv\Scripts\activate          # PowerShell/CMD  (Git Bash: source .venv/Scripts/activate)
-pip install -r requirements-dev.txt
-copy .env.example .env          # Git Bash/Linux: cp .env.example .env
+python -m venv .venvcopy .env.example .env          # Git Bash/Linux: cp .env.example .env
 
 # Start the API with hot reload
 uvicorn app.main:app --reload

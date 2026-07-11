@@ -24,6 +24,33 @@ class _StubConnectionService:
         self.received_sql = sql
         return self._dataframe
 
+    def list_tables(self, data_source) -> list[str]:
+        del data_source
+        return ["sales", "customers"]
+
+    def list_columns(self, data_source, table_name: str):
+        del data_source
+        return [
+            {
+                "column_name": column_name,
+                "data_type": "int64" if pd.api.types.is_numeric_dtype(dtype) else "nvarchar",
+                "is_nullable": False,
+                "ordinal_position": index + 1,
+                "character_maximum_length": None,
+                "numeric_precision": None,
+                "numeric_scale": None,
+            }
+            for index, (column_name, dtype) in enumerate(self._dataframe.dtypes.items())
+        ]
+
+    def get_table_row_count(self, data_source, table_name: str) -> int:
+        del data_source, table_name
+        return len(self._dataframe)
+
+    def preview_table(self, data_source, table_name: str, offset: int, limit: int) -> pd.DataFrame:
+        del data_source, table_name
+        return self._dataframe.iloc[offset : offset + limit].copy()
+
 
 class _StubFileUploadService:
     def __init__(self) -> None:
@@ -56,7 +83,7 @@ def _build_service(
     connection_service = _StubConnectionService(dataframe)
     file_upload_service = _StubFileUploadService()
     # build_profile_from_dataframe never touches the loader/connection deps.
-    profile_service = DataProfileService(dataset_loader=None, sql_server_connection_service=None)
+    profile_service = DataProfileService(dataset_frame_service=None)
     return (
         SqlQueryService(connection_service, profile_service, file_upload_service),
         connection_service,
@@ -110,6 +137,8 @@ def test_execute_query_returns_result_grid() -> None:
     assert result.columns == ["id", "name"]
     assert result.row_count == 3
     assert result.truncated is False
+    assert result.pagination is not None
+    assert result.pagination.page == 1
     assert result.rows[0] == {"id": 1, "name": "a"}
 
 
@@ -117,11 +146,21 @@ def test_execute_query_caps_rows_and_flags_truncation() -> None:
     dataframe = pd.DataFrame({"n": range(50)})
     service, _, _ = _build_service(dataframe)
 
-    result = service.execute_query(_sql_server_data_source(), "SELECT n FROM t", row_limit=10)
+    result = service.execute_query(
+        _sql_server_data_source(),
+        "SELECT n FROM t",
+        page=2,
+        page_size=10,
+        row_limit=10,
+    )
 
     assert result.row_count == 50
     assert len(result.rows) == 10
     assert result.truncated is True
+    assert result.rows[0] == {"n": 10}
+    assert result.pagination is not None
+    assert result.pagination.page == 2
+    assert result.pagination.total_pages == 5
 
 
 def test_execute_query_rejects_non_select_before_running() -> None:
@@ -147,6 +186,44 @@ def test_analyze_query_returns_preview_and_profile() -> None:
     assert analysis.profile.overview.column_count == 2
     numeric_columns = {s.column_name for s in analysis.profile.numeric_statistics}
     assert "value" in numeric_columns
+
+
+def test_validate_query_accepts_read_only_sql() -> None:
+    service, _, _ = _build_service(pd.DataFrame({"n": [1]}))
+
+    result = service.validate_query("SELECT n FROM t")
+
+    assert result.is_valid is True
+    assert result.normalized_sql == "SELECT n FROM t"
+
+
+def test_validate_query_rejects_forbidden_keyword() -> None:
+    service, _, _ = _build_service(pd.DataFrame({"n": [1]}))
+
+    with pytest.raises(NonSelectStatementError):
+        service.validate_query("SELECT n FROM t; DELETE FROM t")
+
+
+def test_get_table_metadata_returns_columns() -> None:
+    dataframe = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+    service, _, _ = _build_service(dataframe)
+
+    metadata = service.get_table_metadata(_sql_server_data_source(), "sales")
+
+    assert metadata.table_name == "sales"
+    assert [column.column_name for column in metadata.columns] == ["id", "name"]
+
+
+def test_preview_table_returns_paginated_rows() -> None:
+    dataframe = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    service, _, _ = _build_service(dataframe)
+
+    preview = service.preview_table(_sql_server_data_source(), "sales", page=2, page_size=1)
+
+    assert preview.table_name == "sales"
+    assert preview.rows == [{"id": 2, "name": "b"}]
+    assert preview.pagination.page == 2
+    assert preview.pagination.total_pages == 3
 
 
 def test_convert_query_to_dataset_saves_file_data_source() -> None:
@@ -208,6 +285,88 @@ def test_query_endpoint_unknown_source_returns_404(api_client) -> None:
         json={"sql": "SELECT 1"},
     )
     assert response.status_code == 404
+
+
+def test_query_validate_endpoint_returns_validation_result(api_client, monkeypatch) -> None:
+    data_source_id = _create_sql_server_source(api_client)
+
+    def _fake_validate(self, sql: str):
+        del self, sql
+        from app.schemas.sql_query_schema import QueryValidationResponse
+
+        return QueryValidationResponse(
+            is_valid=True,
+            normalized_sql="SELECT 1",
+            message="ok",
+        )
+
+    monkeypatch.setattr(SqlQueryService, "validate_query", _fake_validate)
+
+    response = api_client.post(
+        f"/api/v1/data-sources/{data_source_id}/query/validate",
+        json={"sql": "SELECT 1"},
+    )
+    assert response.status_code == 200
+    assert response.json()["normalized_sql"] == "SELECT 1"
+
+
+def test_table_columns_endpoint_returns_metadata(api_client, monkeypatch) -> None:
+    data_source_id = _create_sql_server_source(api_client)
+
+    def _fake_metadata(self, data_source, table_name: str):
+        del self, data_source
+        from app.schemas.sql_query_schema import SqlTableMetadataResponse
+
+        return SqlTableMetadataResponse(
+            table_name=table_name,
+            columns=[
+                {
+                    "column_name": "id",
+                    "data_type": "int",
+                    "is_nullable": False,
+                    "ordinal_position": 1,
+                    "character_maximum_length": None,
+                    "numeric_precision": 10,
+                    "numeric_scale": 0,
+                }
+            ],
+        )
+
+    monkeypatch.setattr(SqlQueryService, "get_table_metadata", _fake_metadata)
+
+    response = api_client.get(f"/api/v1/data-sources/{data_source_id}/tables/sales/columns")
+    assert response.status_code == 200
+    assert response.json()["columns"][0]["column_name"] == "id"
+
+
+def test_table_preview_endpoint_returns_paginated_rows(api_client, monkeypatch) -> None:
+    data_source_id = _create_sql_server_source(api_client)
+
+    def _fake_preview(self, data_source, table_name: str, page: int, page_size: int):
+        del self, data_source
+        from app.schemas.sql_query_schema import QueryPagination, SqlTablePreviewResponse
+
+        return SqlTablePreviewResponse(
+            table_name=table_name,
+            columns=["id"],
+            rows=[{"id": 2}],
+            pagination=QueryPagination(
+                page=page,
+                page_size=page_size,
+                total_pages=3,
+                total_rows=3,
+            ),
+        )
+
+    monkeypatch.setattr(SqlQueryService, "preview_table", _fake_preview)
+
+    response = api_client.get(
+        f"/api/v1/data-sources/{data_source_id}/tables/sales/preview",
+        params={"page": 2, "page_size": 1},
+    )
+    assert response.status_code == 200
+    assert response.json()["pagination"]["page"] == 2
+    assert response.json()["rows"] == [{"id": 2}]
 
 
 def test_convert_query_endpoint_returns_413_when_saved_result_exceeds_upload_limit(

@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import SqlEditorPanel from "@/features/data-sources/sql-editor-panel";
+import DatabaseExplorer from "@/features/data-sources/database-explorer";
 import { getDataSource } from "@/services/data-sources";
 import type { DataSource } from "@/types/data-source";
 
@@ -27,11 +27,10 @@ export default function SqlEditorPage({ params }: { params: Promise<{ id: string
         ← Data Sources
       </Link>
       <h1 className="mt-2 text-3xl font-bold tracking-tight">
-        {dataSource?.name ?? "SQL editor"}
+        {dataSource?.name ?? "Database explorer"}
       </h1>
       <p className="mt-1 text-slate-400">
-        Run a read-only query, review the results, then convert it to a saved dataset
-        with Preview and Data Profile pages.
+        Browse tables, inspect schema, preview data, and run safe read-only SQL.
       </p>
 
       {loadError && (
@@ -48,7 +47,7 @@ export default function SqlEditorPage({ params }: { params: Promise<{ id: string
 
       {dataSource && isSqlServer && (
         <div className="mt-6">
-          <SqlEditorPanel dataSourceId={dataSourceId} />
+          <DatabaseExplorer dataSourceId={dataSourceId} />
         </div>
       )}
     </main>

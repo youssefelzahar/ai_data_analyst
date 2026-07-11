@@ -1,14 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
     """Application settings, loaded from environment variables and .env."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -35,7 +38,7 @@ class Settings(BaseSettings):
 
     # --- AI / LLM settings ---
     ai_provider: str = "ollama"
-    ai_default_model: str = "llama3.1:8b"
+    ai_default_model: str = "gemma4"
     ai_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     ai_request_timeout_seconds: int = Field(default=120, ge=1, le=600)
     ollama_base_url: str = "http://localhost:11434"

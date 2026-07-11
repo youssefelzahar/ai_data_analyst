@@ -15,6 +15,10 @@ export function getDataSource(dataSourceId: string): Promise<DataSource> {
   return request<DataSource>(`/data-sources/${dataSourceId}`);
 }
 
+export function listSqlServerTables(dataSourceId: string): Promise<string[]> {
+  return request<string[]>(`/data-sources/${dataSourceId}/tables`);
+}
+
 export function deleteDataSource(dataSourceId: string): Promise<void> {
   return request<void>(`/data-sources/${dataSourceId}`, { method: "DELETE" });
 }

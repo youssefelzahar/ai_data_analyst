@@ -6,7 +6,7 @@ from app.schemas.data_profile_schema import (
     DatasetOverview,
     OutlierRowsResponse,
 )
-from app.schemas.data_source_schema import DataSourceType
+from app.services.dataset_frame_service import DatasetFrameService
 from app.services.json_safe import to_json_safe
 from app.services.profiling.column_analysis import (
     build_categorical_statistics,
@@ -14,21 +14,10 @@ from app.services.profiling.column_analysis import (
     build_numeric_statistics,
     is_numeric_column,
 )
-from app.services.profiling.loaders import DatasetLoader
 from app.services.profiling.outliers import build_outlier_report, get_outlier_row_indices
 from app.services.profiling.quality_checks import build_data_quality_report
-from app.services.sql_server_connection_service import SqlServerConnectionService
 
 _MAX_RETURNED_OUTLIER_ROWS = 500
-
-
-class MissingTableNameError(Exception):
-    """Raised when profiling a SQL Server data source without a table name."""
-
-
-class UnknownTableError(Exception):
-    """Raised when the requested table doesn't exist in the connected database."""
-
 
 class UnknownColumnError(Exception):
     """Raised when the requested column doesn't exist in the dataset."""
@@ -41,13 +30,8 @@ class NonNumericColumnError(Exception):
 class DataProfileService:
     """Builds a full statistical profile for any supported data source."""
 
-    def __init__(
-        self,
-        dataset_loader: DatasetLoader,
-        sql_server_connection_service: SqlServerConnectionService,
-    ) -> None:
-        self._dataset_loader = dataset_loader
-        self._sql_server_connection_service = sql_server_connection_service
+    def __init__(self, dataset_frame_service: DatasetFrameService) -> None:
+        self._dataset_frame_service = dataset_frame_service
 
     def get_profile(self, data_source: DataSource, table_name: str | None = None) -> DataProfileResponse:
         dataframe = self._load_dataframe(data_source, table_name)
@@ -102,16 +86,7 @@ class DataProfileService:
         )
 
     def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        if data_source.source_type == DataSourceType.SQL_SERVER.value:
-            if not table_name:
-                raise MissingTableNameError(
-                    "A table_name is required to profile a SQL Server data source."
-                )
-            available_tables = self._sql_server_connection_service.list_tables(data_source)
-            if table_name not in available_tables:
-                raise UnknownTableError(f"Table '{table_name}' was not found in this data source.")
-
-        return self._dataset_loader.load(data_source, table_name)
+        return self._dataset_frame_service.load_dataframe(data_source, table_name)
 
     def _build_profile(
         self,

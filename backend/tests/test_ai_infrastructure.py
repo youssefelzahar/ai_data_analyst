@@ -1,10 +1,14 @@
 import json
 
+from app.ai.agent import AnalystAgent
+from app.ai.intent import IntentDetector
 from app.ai.llm.base import LLMRequest, LLMResponse, LLMStreamChunk
 from app.ai.llm.factory import build_model_config, create_llm_client
 from app.ai.llm.ollama_client import OllamaClient
+from app.ai.memory import ConversationMemory
 from app.ai.model_service import ModelService
 from app.ai.prompts import PromptManager
+from app.ai.tools import NoAvailableTool, ToolExecutor, ToolRegistry
 from app.core.config import Settings
 
 
@@ -126,3 +130,66 @@ def test_model_service_uses_prompt_manager_and_llm_client() -> None:
     assert fake_llm_client.last_request is not None
     assert fake_llm_client.last_request.prompt == "Hello analyst"
     assert fake_llm_client.last_request.system_prompt == prompt_manager.get("system.default")
+
+
+def test_tool_registry_registers_and_finds_tools_by_intent() -> None:
+    registry = ToolRegistry()
+    tool = NoAvailableTool()
+
+    registry.register(tool)
+
+    assert registry.get("no_available_tool") is tool
+    assert registry.find_by_intent("general_chat") is tool
+
+
+def test_intent_detector_falls_back_to_registered_general_tool() -> None:
+    registry = ToolRegistry()
+    registry.register(NoAvailableTool())
+    detector = IntentDetector(registry)
+
+    detected_intent = detector.detect("hello there")
+
+    assert detected_intent.intent == "general_chat"
+    assert detected_intent.tool_name == "no_available_tool"
+
+
+def test_conversation_memory_tracks_session_messages_and_context() -> None:
+    memory = ConversationMemory()
+    session = memory.get_or_create_session("session-1")
+
+    memory.set_selected_data_source("session-1", "data-source-1")
+    memory.update_context("session-1", active_table="sales")
+    memory.add_message("session-1", "user", "hello")
+
+    assert session.selected_data_source_id == "data-source-1"
+    assert session.context["active_table"] == "sales"
+    assert memory.get_recent_messages("session-1")[0].content == "hello"
+
+
+def test_analyst_agent_runs_intent_tool_llm_workflow() -> None:
+    fake_llm_client = _FakeLLMClient()
+    prompt_manager = PromptManager()
+    model_service = ModelService(fake_llm_client, prompt_manager)
+    registry = ToolRegistry()
+    registry.register(NoAvailableTool())
+    memory = ConversationMemory()
+    agent = AnalystAgent(
+        intent_detector=IntentDetector(registry),
+        tool_executor=ToolExecutor(registry),
+        conversation_memory=memory,
+        model_service=model_service,
+    )
+
+    response = agent.process_request(
+        "Can you summarize this?",
+        session_id="session-1",
+        selected_data_source_id="data-source-1",
+    )
+
+    assert response.session_id == "session-1"
+    assert response.content == "done"
+    assert response.selected_tool == "no_available_tool"
+    assert response.selected_data_source_id == "data-source-1"
+    assert fake_llm_client.last_request is not None
+    assert "Selected tool: no_available_tool" in fake_llm_client.last_request.prompt
+    assert len(memory.get_recent_messages("session-1")) == 2

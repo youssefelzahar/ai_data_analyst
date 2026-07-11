@@ -16,19 +16,26 @@ from app.schemas.data_source_schema import (
 )
 from app.schemas.sql_query_schema import (
     QueryAnalysisResponse,
+    QueryValidationResponse,
     QueryResultResponse,
     SqlQueryRequest,
+    SqlTableMetadataResponse,
+    SqlTablePreviewResponse,
+)
+from app.services.dataset_frame_service import (
+    DatasetFrameService,
+    MissingTableNameError,
+    UnknownTableError,
 )
 from app.services.dataset_preview_service import DatasetPreviewService
 from app.services.file_upload_service import FileUploadService
+from app.services.dataset_operations_service import DatasetOperationsService
 from app.services.profiling.loaders import DatasetLoadError, DatasetLoader, UnsupportedDataSourceError
 from app.services.profiling.outliers import UnknownOutlierMethodError
 from app.services.profiling.service import (
     DataProfileService,
-    MissingTableNameError,
     NonNumericColumnError,
     UnknownColumnError,
-    UnknownTableError,
 )
 from app.services.sql_query_service import NonSelectStatementError, SqlQueryService
 from app.services.sql_server_connection_service import (
@@ -96,15 +103,35 @@ def get_dataset_preview_service(
     return DatasetPreviewService(dataset_loader=dataset_loader)
 
 
-def get_data_profile_service(
+def get_dataset_frame_service(
     dataset_loader: Annotated[DatasetLoader, Depends(get_dataset_loader)],
     sql_server_connection_service: Annotated[
         SqlServerConnectionService, Depends(get_sql_server_connection_service)
     ],
-) -> DataProfileService:
-    return DataProfileService(
+) -> DatasetFrameService:
+    return DatasetFrameService(
         dataset_loader=dataset_loader,
         sql_server_connection_service=sql_server_connection_service,
+    )
+
+
+def get_data_profile_service(
+    dataset_frame_service: Annotated[
+        DatasetFrameService, Depends(get_dataset_frame_service)
+    ],
+) -> DataProfileService:
+    return DataProfileService(dataset_frame_service=dataset_frame_service)
+
+
+def get_dataset_operations_service(
+    dataset_frame_service: Annotated[
+        DatasetFrameService, Depends(get_dataset_frame_service)
+    ],
+    data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
+) -> DatasetOperationsService:
+    return DatasetOperationsService(
+        dataset_frame_service=dataset_frame_service,
+        data_profile_service=data_profile_service,
     )
 
 
@@ -223,6 +250,40 @@ def list_data_source_tables(
         ) from read_error
 
 
+@router.get("/{data_source_id}/tables/{table_name}/columns", response_model=SqlTableMetadataResponse)
+def get_data_source_table_columns(
+    data_source_id: str,
+    table_name: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+) -> SqlTableMetadataResponse:
+    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.get_table_metadata(data_source, table_name)
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
+@router.get("/{data_source_id}/tables/{table_name}/preview", response_model=SqlTablePreviewResponse)
+def preview_data_source_table(
+    data_source_id: str,
+    table_name: str,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+    page: int = 1,
+    page_size: int = 25,
+) -> SqlTablePreviewResponse:
+    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.preview_table(data_source, table_name, page, page_size)
+    except _UNPROCESSABLE_ERRORS as read_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
+        ) from read_error
+
+
 @router.get("/{data_source_id}/preview", response_model=DatasetPreviewResponse)
 def preview_data_source(
     data_source_id: str,
@@ -313,11 +374,18 @@ def run_data_source_query(
     query_request: SqlQueryRequest,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+    page: int = 1,
+    page_size: int = 100,
 ) -> QueryResultResponse:
     """Execute a read-only SELECT query and return a row-capped result grid."""
     data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
     try:
-        return sql_query_service.execute_query(data_source, query_request.sql)
+        return sql_query_service.execute_query(
+            data_source,
+            query_request.sql,
+            page=page,
+            page_size=page_size,
+        )
     except _BAD_REQUEST_ERRORS as bad_request_error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
@@ -347,6 +415,22 @@ def analyze_data_source_query(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(read_error)
         ) from read_error
+
+
+@router.post("/{data_source_id}/query/validate", response_model=QueryValidationResponse)
+def validate_data_source_query(
+    data_source_id: str,
+    query_request: SqlQueryRequest,
+    data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
+    sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
+) -> QueryValidationResponse:
+    _require_sql_server_data_source(data_source_repository, data_source_id)
+    try:
+        return sql_query_service.validate_query(query_request.sql)
+    except _BAD_REQUEST_ERRORS as bad_request_error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(bad_request_error)
+        ) from bad_request_error
 
 
 @router.post(

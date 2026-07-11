@@ -10,6 +10,20 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Summarize this dataset for a business user:\n\n"
         "${dataset_context}"
     ),
+    "system.agent": (
+        "You are the response layer for an AI data analyst agent. "
+        "Use the selected tool result as the source of truth. "
+        "Do not invent analysis results or claim unavailable tool capabilities."
+    ),
+    "agent.response": (
+        "User request:\n${user_request}\n\n"
+        "Detected intent: ${intent}\n"
+        "Selected tool: ${tool_name}\n"
+        "Selected data source: ${selected_data_source}\n\n"
+        "Tool result:\n${tool_result}\n\n"
+        "Recent conversation:\n${conversation_context}\n\n"
+        "Write the assistant response."
+    ),
 }
 
 

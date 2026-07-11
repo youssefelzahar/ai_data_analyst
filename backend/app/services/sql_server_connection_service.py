@@ -35,6 +35,10 @@ class SqlServerQueryError(Exception):
     """Raised when a query against a saved SQL Server connection fails."""
 
 
+def _escape_sql_identifier(identifier: str) -> str:
+    return f"[{identifier.replace(']', ']]')}]"
+
+
 def _select_installed_odbc_driver() -> str:
     installed_drivers = set(pyodbc.drivers())
     for preferred_driver in _PREFERRED_ODBC_DRIVERS:
@@ -100,6 +104,84 @@ class SqlServerConnectionService:
                     "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
                 )
                 return [row.TABLE_NAME for row in cursor.fetchall()]
+        except pyodbc.Error as query_error:
+            raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
+
+    def list_columns(self, data_source: DataSource, table_name: str) -> list[dict[str, object]]:
+        connection_string = self.build_connection_string(data_source)
+        try:
+            with pyodbc.connect(connection_string, timeout=_CONNECTION_TIMEOUT_SECONDS) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    """
+                    SELECT
+                        COLUMN_NAME,
+                        DATA_TYPE,
+                        IS_NULLABLE,
+                        ORDINAL_POSITION,
+                        CHARACTER_MAXIMUM_LENGTH,
+                        NUMERIC_PRECISION,
+                        NUMERIC_SCALE
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = ?
+                    ORDER BY ORDINAL_POSITION
+                    """,
+                    table_name,
+                )
+                return [
+                    {
+                        "column_name": row.COLUMN_NAME,
+                        "data_type": row.DATA_TYPE,
+                        "is_nullable": row.IS_NULLABLE == "YES",
+                        "ordinal_position": int(row.ORDINAL_POSITION),
+                        "character_maximum_length": (
+                            int(row.CHARACTER_MAXIMUM_LENGTH)
+                            if row.CHARACTER_MAXIMUM_LENGTH is not None
+                            else None
+                        ),
+                        "numeric_precision": (
+                            int(row.NUMERIC_PRECISION)
+                            if row.NUMERIC_PRECISION is not None
+                            else None
+                        ),
+                        "numeric_scale": (
+                            int(row.NUMERIC_SCALE) if row.NUMERIC_SCALE is not None else None
+                        ),
+                    }
+                    for row in cursor.fetchall()
+                ]
+        except pyodbc.Error as query_error:
+            raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
+
+    def get_table_row_count(self, data_source: DataSource, table_name: str) -> int:
+        connection_string = self.build_connection_string(data_source)
+        escaped_table_name = _escape_sql_identifier(table_name)
+        try:
+            with pyodbc.connect(connection_string, timeout=_QUERY_TIMEOUT_SECONDS) as connection:
+                cursor = connection.cursor()
+                cursor.execute(f"SELECT COUNT(*) AS row_count FROM {escaped_table_name}")
+                row = cursor.fetchone()
+                return int(row.row_count if hasattr(row, "row_count") else row[0])
+        except pyodbc.Error as query_error:
+            raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
+
+    def preview_table(
+        self,
+        data_source: DataSource,
+        table_name: str,
+        offset: int,
+        limit: int,
+    ) -> pd.DataFrame:
+        connection_string = self.build_connection_string(data_source)
+        escaped_table_name = _escape_sql_identifier(table_name)
+        sql = (
+            f"SELECT * FROM {escaped_table_name} "
+            "ORDER BY (SELECT NULL) "
+            f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        )
+        try:
+            with pyodbc.connect(connection_string, timeout=_QUERY_TIMEOUT_SECONDS) as connection:
+                return pd.read_sql(sql, connection)
         except pyodbc.Error as query_error:
             raise SqlServerQueryError(_summarize_pyodbc_error(query_error)) from query_error
 
