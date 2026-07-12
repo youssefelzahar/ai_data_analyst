@@ -10,6 +10,7 @@ from app.ai.model_service import ModelService
 from app.ai.prompts import PromptManager
 from app.ai.tools import NoAvailableTool, ToolExecutor, ToolRegistry
 from app.core.config import Settings
+from app.schemas.visualization_schema import VisualizationBundle
 
 
 class _FakeHTTPResponse:
@@ -119,6 +120,35 @@ class _FakeLLMClient:
         yield LLMStreamChunk(model="phi4-mini", content="piece", done=True, raw_response={})
 
 
+class _FakeConversationService:
+    def __init__(self) -> None:
+        self.saved_user_messages: list[tuple[str, str]] = []
+        self.saved_assistant_messages: list[tuple[str, str, dict, VisualizationBundle]] = []
+
+    def hydrate_session(self, session_id: str, selected_data_source_id: str | None = None) -> None:
+        del session_id, selected_data_source_id
+
+    def sync_selected_data_source(self, session_id: str, selected_data_source_id: str | None) -> None:
+        del session_id, selected_data_source_id
+
+    def sync_context(self, session_id: str, context: dict) -> None:
+        del session_id, context
+
+    def save_user_message(self, session_id: str, content: str) -> str:
+        self.saved_user_messages.append((session_id, content))
+        return "user-message-id"
+
+    def save_assistant_message(
+        self,
+        session_id: str,
+        content: str,
+        metadata: dict,
+        visualizations: VisualizationBundle,
+    ) -> str:
+        self.saved_assistant_messages.append((session_id, content, metadata, visualizations))
+        return "assistant-message-id"
+
+
 def test_model_service_uses_prompt_manager_and_llm_client() -> None:
     fake_llm_client = _FakeLLMClient()
     prompt_manager = PromptManager({"user.greet": "Hello ${name}"})
@@ -173,11 +203,13 @@ def test_analyst_agent_runs_intent_tool_llm_workflow() -> None:
     registry = ToolRegistry()
     registry.register(NoAvailableTool())
     memory = ConversationMemory()
+    conversation_service = _FakeConversationService()
     agent = AnalystAgent(
         intent_detector=IntentDetector(registry),
         tool_executor=ToolExecutor(registry),
         conversation_memory=memory,
         model_service=model_service,
+        conversation_service=conversation_service,
     )
 
     response = agent.process_request(
@@ -190,6 +222,9 @@ def test_analyst_agent_runs_intent_tool_llm_workflow() -> None:
     assert response.content == "done"
     assert response.selected_tool == "no_available_tool"
     assert response.selected_data_source_id == "data-source-1"
+    assert response.visualizations.charts == []
     assert fake_llm_client.last_request is not None
     assert "Selected tool: no_available_tool" in fake_llm_client.last_request.prompt
     assert len(memory.get_recent_messages("session-1")) == 2
+    assert len(conversation_service.saved_user_messages) == 1
+    assert len(conversation_service.saved_assistant_messages) == 1

@@ -12,13 +12,16 @@ from app.ai.prompts import PromptManager
 from app.ai.tools import NoAvailableTool, ToolExecutor, ToolRegistry
 from app.ai.tools.dataset_tools import build_dataset_tools
 from app.ai.tools.sql_tools import build_sql_tools
+from app.ai.tools.visualization_tools import build_visualization_tools
 from app.services.dataset_operations_service import (
     AggregationSpec,
     DatasetOperationsService,
     FilterCondition,
 )
+from app.services.conversation_service import ConversationService
 from app.services.profiling.service import DataProfileService
 from app.services.sql_query_service import SqlQueryService
+from app.services.visualization_service import VisualizationService
 
 
 class _StubDatasetFrameService:
@@ -46,6 +49,55 @@ class _FakeLLMClient:
     def generate(self, request_payload: LLMRequest) -> LLMResponse:
         self.last_request = request_payload
         return LLMResponse(model="phi4-mini", content="done", raw_response={})
+
+
+class _StubConversationRepository:
+    def __init__(self) -> None:
+        self.messages = []
+        self.context = {}
+        self.selected_data_source_id = None
+
+    def get_conversation(self, conversation_id: str):
+        del conversation_id
+        return None
+
+    def get_or_create_conversation(self, conversation_id: str, selected_data_source_id: str | None = None):
+        return SimpleNamespace(
+            id=conversation_id,
+            title=None,
+            selected_data_source_id=selected_data_source_id,
+            context_json={},
+            created_at=None,
+            updated_at=None,
+            messages=[],
+            artifacts=[],
+        )
+
+    def update_conversation(self, conversation_id: str, **kwargs):
+        del conversation_id
+        self.context = kwargs.get("context_json", self.context)
+        self.selected_data_source_id = kwargs.get("selected_data_source_id")
+        return self.get_or_create_conversation("session")
+
+    def add_message(self, conversation_id: str, role: str, content: str, metadata_json: dict | None = None):
+        message = SimpleNamespace(
+            id=f"{role}-{len(self.messages) + 1}",
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            metadata_json=metadata_json or {},
+            created_at=None,
+            artifacts=[],
+        )
+        self.messages.append(message)
+        return message
+
+    def add_artifact(self, conversation_id: str, **kwargs):
+        del conversation_id
+        return SimpleNamespace(id=f"artifact-{len(self.messages)}", **kwargs)
+
+    def list_conversations(self):
+        return []
 
 
 def _build_dataset() -> tuple[SimpleNamespace, pd.DataFrame]:
@@ -170,11 +222,13 @@ def test_agent_selects_preview_tool_and_uses_tool_output_in_prompt() -> None:
     registry.register(NoAvailableTool())
 
     fake_llm = _FakeLLMClient()
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
     agent = AnalystAgent(
         intent_detector=IntentDetector(registry),
         tool_executor=ToolExecutor(registry),
         conversation_memory=ConversationMemory(),
         model_service=ModelService(fake_llm, PromptManager()),
+        conversation_service=conversation_service,
     )
 
     response = agent.process_request(
@@ -200,11 +254,13 @@ def test_agent_uses_aggregation_tool_for_sum_requests() -> None:
     registry.register(NoAvailableTool())
 
     fake_llm = _FakeLLMClient()
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
     agent = AnalystAgent(
         intent_detector=IntentDetector(registry),
         tool_executor=ToolExecutor(registry),
         conversation_memory=ConversationMemory(),
         model_service=ModelService(fake_llm, PromptManager()),
+        conversation_service=conversation_service,
     )
 
     response = agent.process_request(
@@ -245,11 +301,13 @@ def test_agent_uses_sql_table_listing_tool() -> None:
     registry.register(NoAvailableTool())
 
     fake_llm = _FakeLLMClient()
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
     agent = AnalystAgent(
         intent_detector=IntentDetector(registry),
         tool_executor=ToolExecutor(registry),
         conversation_memory=ConversationMemory(),
         model_service=ModelService(fake_llm, PromptManager()),
+        conversation_service=conversation_service,
     )
 
     response = agent.process_request(
@@ -262,3 +320,40 @@ def test_agent_uses_sql_table_listing_tool() -> None:
     assert response.selected_tool == "sql_list_tables"
     assert fake_llm.last_request is not None
     assert '"tables"' in fake_llm.last_request.prompt
+
+
+def test_agent_returns_visualization_artifacts_for_dashboard_request() -> None:
+    data_source, dataframe = _build_dataset()
+    operations_service = _build_operations_service(dataframe)
+    visualization_service = VisualizationService(
+        dataset_operations_service=operations_service,
+        data_profile_service=DataProfileService(dataset_frame_service=_StubDatasetFrameService(dataframe)),
+    )
+    repository = _StubDataSourceRepository(data_source)
+    registry = ToolRegistry()
+    for tool in build_dataset_tools(repository, operations_service):
+        registry.register(tool)
+    for tool in build_visualization_tools(repository, operations_service, visualization_service):
+        registry.register(tool)
+    registry.register(NoAvailableTool())
+
+    fake_llm = _FakeLLMClient()
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
+    agent = AnalystAgent(
+        intent_detector=IntentDetector(registry),
+        tool_executor=ToolExecutor(registry),
+        conversation_memory=ConversationMemory(),
+        model_service=ModelService(fake_llm, PromptManager()),
+        conversation_service=conversation_service,
+    )
+
+    response = agent.process_request(
+        "Build a dashboard with a bar chart and KPI cards",
+        session_id="session-4",
+        selected_data_source_id=data_source.id,
+    )
+
+    assert response.intent == "visualize_dashboard"
+    assert response.selected_tool == "visualization_dashboard"
+    assert len(response.visualizations.kpi_cards) >= 1
+    assert len(response.visualizations.charts) >= 1

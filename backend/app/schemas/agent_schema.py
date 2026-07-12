@@ -1,5 +1,11 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.visualization_schema import (
+    ConversationResponse,
+    ConversationSummaryResponse,
+    VisualizationBundle,
+)
+
 
 class AgentChatRequest(BaseModel):
     message: str = Field(min_length=1)
@@ -13,3 +19,12 @@ class AgentChatResponse(BaseModel):
     intent: str
     selected_tool: str
     selected_data_source_id: str | None = None
+    visualizations: VisualizationBundle = Field(default_factory=VisualizationBundle)
+
+
+class AgentConversationListResponse(BaseModel):
+    conversations: list[ConversationSummaryResponse]
+
+
+class AgentConversationResponse(ConversationResponse):
+    pass

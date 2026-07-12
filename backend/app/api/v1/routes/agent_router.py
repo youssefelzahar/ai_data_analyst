@@ -1,11 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.ai.agent import AnalystAgent
-from app.ai.dependencies import get_analyst_agent
-from app.schemas.agent_schema import AgentChatRequest, AgentChatResponse
+from app.ai.dependencies import get_analyst_agent, get_conversation_service
+from app.schemas.agent_schema import (
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentConversationListResponse,
+    AgentConversationResponse,
+)
+from app.services.conversation_service import ConversationService
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -26,6 +32,7 @@ def chat_with_agent(
         intent=agent_response.intent,
         selected_tool=agent_response.selected_tool,
         selected_data_source_id=agent_response.selected_data_source_id,
+        visualizations=agent_response.visualizations,
     )
 
 
@@ -43,3 +50,23 @@ def stream_chat_with_agent(
         (chunk.content for chunk in stream),
         media_type="text/plain",
     )
+
+
+@router.get("/conversations", response_model=AgentConversationListResponse)
+def list_agent_conversations(
+    conversation_service: Annotated[ConversationService, Depends(get_conversation_service)],
+) -> AgentConversationListResponse:
+    return AgentConversationListResponse(
+        conversations=conversation_service.list_conversations()
+    )
+
+
+@router.get("/conversations/{session_id}", response_model=AgentConversationResponse)
+def get_agent_conversation(
+    session_id: str,
+    conversation_service: Annotated[ConversationService, Depends(get_conversation_service)],
+) -> AgentConversationResponse:
+    conversation = conversation_service.get_conversation(session_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return AgentConversationResponse.model_validate(conversation.model_dump())

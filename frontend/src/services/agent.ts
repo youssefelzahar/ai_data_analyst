@@ -1,5 +1,10 @@
 import { API_URL, request } from "@/services/api";
-import type { AgentChatRequest, AgentChatResponse } from "@/types/agent";
+import type {
+  AgentChatRequest,
+  AgentChatResponse,
+  AgentConversation,
+  AgentConversationListResponse,
+} from "@/types/agent";
 
 export function sendAgentMessage(
   chatRequest: AgentChatRequest,
@@ -8,6 +13,14 @@ export function sendAgentMessage(
     method: "POST",
     body: JSON.stringify(chatRequest),
   });
+}
+
+export async function listConversations(): Promise<AgentConversationListResponse> {
+  return request<AgentConversationListResponse>("/agent/conversations");
+}
+
+export async function getConversation(sessionId: string): Promise<AgentConversation> {
+  return request<AgentConversation>(`/agent/conversations/${sessionId}`);
 }
 
 export async function streamAgentMessage(

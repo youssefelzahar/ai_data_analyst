@@ -8,6 +8,7 @@ from uuid import uuid4
 class ConversationMessage:
     role: str
     content: str
+    message_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -26,6 +27,9 @@ class ConversationMemory:
     def __init__(self) -> None:
         self._sessions: dict[str, ConversationSession] = {}
 
+    def has_session(self, session_id: str) -> bool:
+        return session_id in self._sessions
+
     def get_or_create_session(self, session_id: str | None = None) -> ConversationSession:
         resolved_session_id = session_id or str(uuid4())
         if resolved_session_id not in self._sessions:
@@ -34,15 +38,33 @@ class ConversationMemory:
             )
         return self._sessions[resolved_session_id]
 
+    def load_session(
+        self,
+        session_id: str,
+        messages: list[ConversationMessage],
+        context: dict[str, Any],
+        selected_data_source_id: str | None,
+    ) -> ConversationSession:
+        session = ConversationSession(
+            session_id=session_id,
+            messages=list(messages),
+            context=dict(context),
+            selected_data_source_id=selected_data_source_id,
+        )
+        self._sessions[session_id] = session
+        return session
+
     def add_message(
         self,
         session_id: str,
         role: str,
         content: str,
         metadata: dict[str, Any] | None = None,
+        message_id: str | None = None,
     ) -> ConversationMessage:
         session = self.get_or_create_session(session_id)
         message = ConversationMessage(
+            message_id=message_id,
             role=role,
             content=content,
             metadata=metadata or {},
