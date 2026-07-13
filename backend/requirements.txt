@@ -9,3 +9,6 @@ cryptography>=44.0
 python-multipart>=0.0.20
 pandas>=2.2
 openpyxl>=3.1
+scikit-learn>=1.5
+scipy>=1.13
+nltk>=3.9

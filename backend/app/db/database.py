@@ -33,6 +33,7 @@ def create_database_tables() -> None:
     # Import models so they register themselves on Base.metadata.
     from app.db.models import conversation_model  # noqa: F401
     from app.db.models import data_source_model  # noqa: F401
+    from app.db.models import dataset_version_model  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

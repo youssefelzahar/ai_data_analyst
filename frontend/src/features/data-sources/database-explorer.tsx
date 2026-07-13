@@ -474,6 +474,12 @@ export default function DatabaseExplorer({ dataSourceId }: { dataSourceId: strin
               >
                 Data Profile
               </Link>
+              <Link
+                href={`/data-sources/${savedDataset.id}/cleaning`}
+                className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+              >
+                Cleaning
+              </Link>
             </div>
           </section>
         )}

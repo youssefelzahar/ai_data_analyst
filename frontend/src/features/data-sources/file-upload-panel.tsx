@@ -190,6 +190,12 @@ export default function FileUploadPanel() {
                   >
                     Profile
                   </Link>
+                  <Link
+                    href={`/data-sources/${uploadedDataset.id}/cleaning`}
+                    className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-sky-700 hover:text-sky-400"
+                  >
+                    Cleaning
+                  </Link>
                   <button
                     onClick={() => void handleDelete(uploadedDataset.id)}
                     className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-800 hover:text-red-400"
