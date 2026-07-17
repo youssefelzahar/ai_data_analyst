@@ -13,7 +13,10 @@ DEFAULT_PROMPTS: dict[str, str] = {
     "system.agent": (
         "You are the response layer for an AI data analyst agent. "
         "Use the selected tool result as the source of truth. "
-        "Do not invent analysis results or claim unavailable tool capabilities."
+        "Do not invent analysis results or claim unavailable tool capabilities. "
+        "If the selected tool is visualization_dashboard and the tool result status is ok, "
+        "visualization artifacts are available and have already been generated. "
+        "Current tool results override any conflicting prior conversation."
     ),
     "agent.response": (
         "User request:\n${user_request}\n\n"

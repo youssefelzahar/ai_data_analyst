@@ -6,6 +6,7 @@ import pandas as pd
 from app.ai.agent import AnalystAgent
 from app.ai.intent import IntentDetector
 from app.ai.llm.base import LLMRequest, LLMResponse
+from app.ai.llm.ollama_client import OllamaClientError
 from app.ai.memory import ConversationMemory
 from app.ai.model_service import ModelService
 from app.ai.prompts import PromptManager
@@ -49,6 +50,25 @@ class _FakeLLMClient:
     def generate(self, request_payload: LLMRequest) -> LLMResponse:
         self.last_request = request_payload
         return LLMResponse(model="phi4-mini", content="done", raw_response={})
+
+
+class _FailingLLMClient:
+    def generate(self, request_payload: LLMRequest) -> LLMResponse:
+        del request_payload
+        raise OllamaClientError("Ollama request failed")
+
+
+class _MisleadingLLMClient:
+    def generate(self, request_payload: LLMRequest) -> LLMResponse:
+        del request_payload
+        return LLMResponse(
+            model="phi4-mini",
+            content=(
+                "The current tool result doesn't include country data. "
+                "Additionally, visualization capabilities aren't available yet."
+            ),
+            raw_response={},
+        )
 
 
 class _StubConversationRepository:
@@ -355,5 +375,140 @@ def test_agent_returns_visualization_artifacts_for_dashboard_request() -> None:
 
     assert response.intent == "visualize_dashboard"
     assert response.selected_tool == "visualization_dashboard"
+    assert len(response.visualizations.kpi_cards) >= 1
+    assert len(response.visualizations.charts) >= 1
+
+
+def test_agent_routes_plural_kpi_card_request_to_visualization_tool() -> None:
+    data_source = SimpleNamespace(
+        id="jobs-ds",
+        name="jobs",
+        source_type="file",
+        file_size_bytes=128,
+    )
+    dataframe = pd.DataFrame(
+        {
+            "job": ["analyst", "engineer", "analyst", "manager"],
+            "country": ["Egypt", "Germany", "Egypt", "France"],
+        }
+    )
+    operations_service = _build_operations_service(dataframe)
+    visualization_service = VisualizationService(
+        dataset_operations_service=operations_service,
+        data_profile_service=DataProfileService(dataset_frame_service=_StubDatasetFrameService(dataframe)),
+    )
+    repository = _StubDataSourceRepository(data_source)
+    registry = ToolRegistry()
+    for tool in build_dataset_tools(repository, operations_service):
+        registry.register(tool)
+    for tool in build_visualization_tools(repository, operations_service, visualization_service):
+        registry.register(tool)
+    registry.register(NoAvailableTool())
+
+    fake_llm = _FakeLLMClient()
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
+    agent = AnalystAgent(
+        intent_detector=IntentDetector(registry),
+        tool_executor=ToolExecutor(registry),
+        conversation_memory=ConversationMemory(),
+        model_service=ModelService(fake_llm, PromptManager()),
+        conversation_service=conversation_service,
+    )
+
+    response = agent.process_request(
+        "create card KPIs with count of jobs and country",
+        session_id="session-jobs",
+        selected_data_source_id=data_source.id,
+    )
+
+    assert response.intent == "visualize_dashboard"
+    assert response.selected_tool == "visualization_dashboard"
+    assert len(response.visualizations.kpi_cards) >= 1
+    assert any(chart.title == "Count by country" for chart in response.visualizations.charts)
+    assert fake_llm.last_request is not None
+    assert '"title": "Count by country"' in fake_llm.last_request.prompt
+    assert '"label": "Egypt"' in fake_llm.last_request.prompt
+
+
+def test_agent_replaces_misleading_visualization_llm_response() -> None:
+    data_source = SimpleNamespace(
+        id="jobs-ds",
+        name="jobs",
+        source_type="file",
+        file_size_bytes=128,
+    )
+    dataframe = pd.DataFrame(
+        {
+            "job": ["analyst", "engineer", "analyst", "manager"],
+            "country": ["Egypt", "Germany", "Egypt", "France"],
+        }
+    )
+    operations_service = _build_operations_service(dataframe)
+    visualization_service = VisualizationService(
+        dataset_operations_service=operations_service,
+        data_profile_service=DataProfileService(dataset_frame_service=_StubDatasetFrameService(dataframe)),
+    )
+    repository = _StubDataSourceRepository(data_source)
+    registry = ToolRegistry()
+    for tool in build_dataset_tools(repository, operations_service):
+        registry.register(tool)
+    for tool in build_visualization_tools(repository, operations_service, visualization_service):
+        registry.register(tool)
+    registry.register(NoAvailableTool())
+
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
+    agent = AnalystAgent(
+        intent_detector=IntentDetector(registry),
+        tool_executor=ToolExecutor(registry),
+        conversation_memory=ConversationMemory(),
+        model_service=ModelService(_MisleadingLLMClient(), PromptManager()),
+        conversation_service=conversation_service,
+    )
+
+    response = agent.process_request(
+        "create card KPIs with count of jobs and country",
+        session_id="session-misleading",
+        selected_data_source_id=data_source.id,
+    )
+
+    assert "visualization capabilities" not in response.content
+    assert "Count by country" in response.content
+    assert len(response.visualizations.charts) == 1
+
+
+def test_agent_returns_dashboard_artifacts_when_llm_summary_fails() -> None:
+    data_source, dataframe = _build_dataset()
+    operations_service = _build_operations_service(dataframe)
+    visualization_service = VisualizationService(
+        dataset_operations_service=operations_service,
+        data_profile_service=DataProfileService(dataset_frame_service=_StubDatasetFrameService(dataframe)),
+    )
+    repository = _StubDataSourceRepository(data_source)
+    registry = ToolRegistry()
+    for tool in build_dataset_tools(repository, operations_service):
+        registry.register(tool)
+    for tool in build_visualization_tools(repository, operations_service, visualization_service):
+        registry.register(tool)
+    registry.register(NoAvailableTool())
+
+    conversation_service = ConversationService(_StubConversationRepository(), ConversationMemory())
+    agent = AnalystAgent(
+        intent_detector=IntentDetector(registry),
+        tool_executor=ToolExecutor(registry),
+        conversation_memory=ConversationMemory(),
+        model_service=ModelService(_FailingLLMClient(), PromptManager()),
+        conversation_service=conversation_service,
+    )
+
+    response = agent.process_request(
+        "Create a dashboard with KPI cards and count jobs by region",
+        session_id="session-5",
+        selected_data_source_id=data_source.id,
+    )
+
+    assert response.intent == "visualize_dashboard"
+    assert response.selected_tool == "visualization_dashboard"
+    assert "I created the dashboard" in response.content
+    assert "Charts include" in response.content
     assert len(response.visualizations.kpi_cards) >= 1
     assert len(response.visualizations.charts) >= 1

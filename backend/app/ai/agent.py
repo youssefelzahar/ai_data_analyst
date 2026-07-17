@@ -11,6 +11,10 @@ from app.schemas.visualization_schema import VisualizationBundle
 from app.services.conversation_service import ConversationService
 
 
+MAX_TOOL_RESULT_PROMPT_CHARS = 12000
+MAX_CONVERSATION_PROMPT_CHARS = 6000
+
+
 class AgentResponseError(Exception):
     """Raised when the agent cannot produce a response from the LLM."""
 
@@ -59,34 +63,43 @@ class AnalystAgent:
         selected_data_source_id: str | None = None,
     ) -> AnalystAgentResponse:
         turn = self._prepare_turn(user_request, session_id, selected_data_source_id)
+        used_llm_fallback = False
         try:
             llm_response = self._model_service.generate(
                 "agent.response",
                 system_prompt_key="system.agent",
                 **self._build_prompt_variables(turn),
             )
+            assistant_content = llm_response.content
         except OllamaClientError as error:
-            raise AgentResponseError(str(error)) from error
+            if not self._can_return_tool_fallback(turn):
+                raise AgentResponseError(str(error)) from error
+            assistant_content = self._build_tool_fallback_response(turn)
+            used_llm_fallback = True
+        if self._should_replace_misleading_visualization_response(turn, assistant_content):
+            assistant_content = self._build_tool_fallback_response(turn)
+            used_llm_fallback = True
         assistant_metadata = {
             "intent": turn.intent.intent,
             "tool": turn.tool_result.tool_name,
+            "llm_fallback": used_llm_fallback,
         }
         assistant_message_id = self._conversation_service.save_assistant_message(
             turn.session_id,
-            llm_response.content,
+            assistant_content,
             assistant_metadata,
             turn.visualizations,
         )
         self._conversation_memory.add_message(
             turn.session_id,
             "assistant",
-            llm_response.content,
+            assistant_content,
             assistant_metadata,
             message_id=assistant_message_id,
         )
         return AnalystAgentResponse(
             session_id=turn.session_id,
-            content=llm_response.content,
+            content=assistant_content,
             intent=turn.intent.intent,
             selected_tool=turn.tool_result.tool_name,
             selected_data_source_id=turn.selected_data_source_id,
@@ -101,13 +114,16 @@ class AnalystAgent:
     ) -> Iterator[LLMStreamChunk]:
         turn = self._prepare_turn(user_request, session_id, selected_data_source_id)
         response_parts: list[str] = []
-        for chunk in self._model_service.stream_generate(
-            "agent.response",
-            system_prompt_key="system.agent",
-            **self._build_prompt_variables(turn),
-        ):
-            response_parts.append(chunk.content)
-            yield chunk
+        try:
+            for chunk in self._model_service.stream_generate(
+                "agent.response",
+                system_prompt_key="system.agent",
+                **self._build_prompt_variables(turn),
+            ):
+                response_parts.append(chunk.content)
+                yield chunk
+        except OllamaClientError as error:
+            raise AgentResponseError(str(error)) from error
         assistant_content = "".join(response_parts)
         assistant_metadata = {
             "intent": turn.intent.intent,
@@ -197,14 +213,87 @@ class AnalystAgent:
             "intent": turn.intent.intent,
             "tool_name": turn.tool_result.tool_name,
             "selected_data_source": turn.selected_data_source_id or "none",
-            "tool_result": turn.tool_result.content,
+            "tool_result": self._truncate_for_prompt(
+                turn.tool_result.content,
+                MAX_TOOL_RESULT_PROMPT_CHARS,
+            ),
             "conversation_context": self._format_history(
-                self._conversation_memory.get_recent_messages(turn.session_id)
+                self._conversation_memory.get_recent_messages(turn.session_id),
+                MAX_CONVERSATION_PROMPT_CHARS,
             ),
         }
 
     @staticmethod
-    def _format_history(messages: list[ConversationMessage]) -> str:
+    def _format_history(
+        messages: list[ConversationMessage],
+        max_chars: int = MAX_CONVERSATION_PROMPT_CHARS,
+    ) -> str:
         if not messages:
             return "No prior conversation."
-        return "\n".join(f"{message.role}: {message.content}" for message in messages)
+        formatted_history = "\n".join(
+            f"{message.role}: {message.content}" for message in messages
+        )
+        return AnalystAgent._truncate_for_prompt(formatted_history, max_chars)
+
+    @staticmethod
+    def _truncate_for_prompt(value: str, max_chars: int) -> str:
+        if len(value) <= max_chars:
+            return value
+        omitted_chars = len(value) - max_chars
+        return (
+            f"{value[:max_chars]}\n\n"
+            f"[Truncated {omitted_chars} characters to keep the model request within limits.]"
+        )
+
+    @staticmethod
+    def _can_return_tool_fallback(turn: AgentTurn) -> bool:
+        return (
+            turn.tool_result.metadata.get("status") == "ok"
+            and (
+                bool(turn.visualizations.kpi_cards)
+                or bool(turn.visualizations.tables)
+                or bool(turn.visualizations.charts)
+            )
+        )
+
+    @staticmethod
+    def _build_tool_fallback_response(turn: AgentTurn) -> str:
+        artifact_counts: list[str] = []
+        if turn.visualizations.kpi_cards:
+            artifact_counts.append(f"{len(turn.visualizations.kpi_cards)} KPI cards")
+        if turn.visualizations.charts:
+            artifact_counts.append(f"{len(turn.visualizations.charts)} charts")
+        if turn.visualizations.tables:
+            artifact_counts.append(f"{len(turn.visualizations.tables)} tables")
+        artifact_summary = ", ".join(artifact_counts)
+        details: list[str] = []
+        if turn.visualizations.kpi_cards:
+            kpis = ", ".join(
+                f"{card.title}: {card.value}" for card in turn.visualizations.kpi_cards[:4]
+            )
+            details.append(f"KPI cards include {kpis}")
+        if turn.visualizations.charts:
+            charts = ", ".join(chart.title for chart in turn.visualizations.charts[:3])
+            details.append(f"Charts include {charts}")
+        detail_text = f" {'; '.join(details)}." if details else ""
+        return f"I created the dashboard with {artifact_summary}.{detail_text}"
+
+    @staticmethod
+    def _should_replace_misleading_visualization_response(
+        turn: AgentTurn,
+        assistant_content: str,
+    ) -> bool:
+        if not AnalystAgent._can_return_tool_fallback(turn):
+            return False
+        normalized_content = assistant_content.lower()
+        misleading_markers = (
+            "visualization capabilities aren't available",
+            "visualization capabilities are not available",
+            "don't have visualization capabilities",
+            "do not have visualization capabilities",
+            "tool capabilities will be added later",
+            "current tool result doesn't include",
+            "current tool result does not include",
+            "need to run a separate aggregation",
+        )
+        return any(marker in normalized_content for marker in misleading_markers)

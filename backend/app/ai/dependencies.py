@@ -15,20 +15,24 @@ from app.ai.tools.sql_tools import build_sql_tools
 from app.ai.tools.visualization_tools import build_visualization_tools
 from app.api.v1.routes.data_source_router import (
     get_data_source_repository,
-    get_data_profile_service,
-    get_dataset_operations_service,
+    get_dataset_loader,
     get_sql_query_service,
     get_sql_server_connection_service,
 )
+from app.core.config import Settings, get_settings
 from app.db.database import get_database_session
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.data_source_repository import DataSourceRepository
+from app.repositories.dataset_version_repository import DatasetVersionRepository
 from app.services.conversation_service import ConversationService
+from app.services.dataset_frame_service import DatasetFrameService
 from app.services.dataset_operations_service import DatasetOperationsService
+from app.services.profiling.loaders import DatasetLoader
 from app.services.profiling.service import DataProfileService
 from app.services.sql_query_service import SqlQueryService
 from app.services.sql_server_connection_service import SqlServerConnectionService
 from app.services.visualization_service import VisualizationService
+from app.storage.local import LocalFileStorage
 from sqlalchemy.orm import Session
 
 
@@ -67,11 +71,60 @@ def get_conversation_service(
     )
 
 
+def get_dataset_version_repository(
+    database_session: Annotated[Session, Depends(get_database_session)],
+) -> DatasetVersionRepository:
+    return DatasetVersionRepository(database_session)
+
+
+def get_agent_dataset_frame_service(
+    dataset_loader: Annotated[DatasetLoader, Depends(get_dataset_loader)],
+    sql_server_connection_service: Annotated[
+        SqlServerConnectionService, Depends(get_sql_server_connection_service)
+    ],
+    dataset_version_repository: Annotated[
+        DatasetVersionRepository, Depends(get_dataset_version_repository)
+    ],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DatasetFrameService:
+    return DatasetFrameService(
+        dataset_loader=dataset_loader,
+        sql_server_connection_service=sql_server_connection_service,
+        dataset_version_repository=dataset_version_repository,
+        file_storage=LocalFileStorage(settings.upload_directory),
+        use_latest_version=True,
+    )
+
+
+def get_agent_data_profile_service(
+    dataset_frame_service: Annotated[
+        DatasetFrameService, Depends(get_agent_dataset_frame_service)
+    ],
+) -> DataProfileService:
+    return DataProfileService(dataset_frame_service=dataset_frame_service)
+
+
+def get_agent_dataset_operations_service(
+    dataset_frame_service: Annotated[
+        DatasetFrameService, Depends(get_agent_dataset_frame_service)
+    ],
+    data_profile_service: Annotated[
+        DataProfileService, Depends(get_agent_data_profile_service)
+    ],
+) -> DatasetOperationsService:
+    return DatasetOperationsService(
+        dataset_frame_service=dataset_frame_service,
+        data_profile_service=data_profile_service,
+    )
+
+
 def get_visualization_service(
     dataset_operations_service: Annotated[
-        DatasetOperationsService, Depends(get_dataset_operations_service)
+        DatasetOperationsService, Depends(get_agent_dataset_operations_service)
     ],
-    data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
+    data_profile_service: Annotated[
+        DataProfileService, Depends(get_agent_data_profile_service)
+    ],
 ) -> VisualizationService:
     return VisualizationService(
         dataset_operations_service=dataset_operations_service,
@@ -118,7 +171,7 @@ def get_analyst_agent(
         DataSourceRepository, Depends(get_data_source_repository)
     ],
     dataset_operations_service: Annotated[
-        DatasetOperationsService, Depends(get_dataset_operations_service)
+        DatasetOperationsService, Depends(get_agent_dataset_operations_service)
     ],
     sql_server_connection_service: Annotated[
         SqlServerConnectionService, Depends(get_sql_server_connection_service)

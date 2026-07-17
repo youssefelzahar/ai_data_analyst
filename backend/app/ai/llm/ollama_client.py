@@ -56,25 +56,45 @@ class OllamaClient(LLMClient):
         if request_payload.system_prompt:
             payload["system"] = request_payload.system_prompt
         return payload
-
     def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         target_url = f"{self._base_url}{path}"
-        body = json.dumps(payload).encode("utf-8")
-        request_object = request.Request(
+
+        req = request.Request(
             target_url,
-            data=body,
+            data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+
         try:
             with request.urlopen(
-                request_object,
+                req,
                 timeout=self._model_config.request_timeout_seconds,
             ) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (error.URLError, error.HTTPError, json.JSONDecodeError) as request_error:
-            raise OllamaClientError(f"Ollama request failed: {request_error}") from request_error
+                return json.loads(response.read().decode())
 
+        except error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+
+            raise OllamaClientError(
+                f"""
+    HTTP {e.code}
+    Reason: {e.reason}
+
+    Response:
+    {body}
+    """
+            ) from e
+
+        except error.URLError as e:
+            raise OllamaClientError(
+                f"Cannot connect to Ollama ({target_url}). {e.reason}"
+            ) from e
+
+        except json.JSONDecodeError as e:
+            raise OllamaClientError(
+                f"Ollama returned invalid JSON: {e}"
+            ) from e
     def _stream_json_lines(self, path: str, payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
         target_url = f"{self._base_url}{path}"
         body = json.dumps(payload).encode("utf-8")

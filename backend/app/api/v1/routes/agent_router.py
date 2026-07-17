@@ -1,9 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from app.ai.agent import AnalystAgent
+from app.ai.agent import AgentResponseError, AnalystAgent
 from app.ai.dependencies import get_analyst_agent, get_conversation_service
 from app.schemas.agent_schema import (
     AgentChatRequest,
@@ -21,11 +21,17 @@ def chat_with_agent(
     chat_request: AgentChatRequest,
     analyst_agent: Annotated[AnalystAgent, Depends(get_analyst_agent)],
 ) -> AgentChatResponse:
-    agent_response = analyst_agent.process_request(
-        user_request=chat_request.message,
-        session_id=chat_request.session_id,
-        selected_data_source_id=chat_request.selected_data_source_id,
-    )
+    try:
+        agent_response = analyst_agent.process_request(
+            user_request=chat_request.message,
+            session_id=chat_request.session_id,
+            selected_data_source_id=chat_request.selected_data_source_id,
+        )
+    except AgentResponseError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_format_agent_error(error),
+        ) from error
     return AgentChatResponse(
         session_id=agent_response.session_id,
         message=agent_response.content,
@@ -47,7 +53,7 @@ def stream_chat_with_agent(
         selected_data_source_id=chat_request.selected_data_source_id,
     )
     return StreamingResponse(
-        (chunk.content for chunk in stream),
+        _stream_agent_content(stream),
         media_type="text/plain",
     )
 
@@ -70,3 +76,19 @@ def get_agent_conversation(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return AgentConversationResponse.model_validate(conversation.model_dump())
+
+
+def _stream_agent_content(stream):
+    try:
+        for chunk in stream:
+            yield chunk.content
+    except AgentResponseError as error:
+        yield _format_agent_error(error)
+
+
+def _format_agent_error(error: AgentResponseError) -> str:
+    del error
+    return (
+        "The AI model service failed while generating a response. "
+        "Check that Ollama is running and the selected model can handle this request."
+    )

@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+import re
 from typing import Any
 
 import pandas as pd
@@ -88,8 +89,17 @@ class VisualizationService:
     def build_summary(self, bundle: VisualizationBundle) -> dict[str, Any]:
         return {
             "kpi_card_count": len(bundle.kpi_cards),
+            "kpi_cards": [
+                {
+                    "title": card.title,
+                    "value": card.value,
+                    "subtitle": card.subtitle,
+                }
+                for card in bundle.kpi_cards
+            ],
             "table_count": len(bundle.tables),
             "chart_count": len(bundle.charts),
+            "charts": [_summarize_chart(chart) for chart in bundle.charts],
             "chart_types": [chart.chart_type for chart in bundle.charts],
             "titles": [* [card.title for card in bundle.kpi_cards], * [chart.title for chart in bundle.charts]],
         }
@@ -355,6 +365,13 @@ def _default_chart_types(dataframe: pd.DataFrame, user_request: str) -> list[str
         if len(dataframe.select_dtypes(include=["number"]).columns) == 1:
             return ["histogram"]
         return ["bar"]
+    if any(keyword in normalized_request for keyword in ("kpi", "kpis", "card", "cards")):
+        matched_columns = _match_columns(user_request, dataframe.columns)
+        categorical_columns = [
+            column for column in dataframe.columns if not pd.api.types.is_numeric_dtype(dataframe[column])
+        ]
+        if any(column in categorical_columns for column in matched_columns):
+            return ["bar"]
     return []
 
 
@@ -369,7 +386,8 @@ def _match_columns(user_request: str, columns) -> list[str]:
     normalized_request = user_request.lower()
     matched_columns: list[str] = []
     for column in columns:
-        if column.lower() in normalized_request:
+        pattern = r"(?<!\w)" + re.escape(str(column).lower()).replace(r"\ ", r"\s+") + r"(?!\w)"
+        if re.search(pattern, normalized_request):
             matched_columns.append(str(column))
     return matched_columns
 
@@ -377,3 +395,30 @@ def _match_columns(user_request: str, columns) -> list[str]:
 def _find_matching_column(user_request: str, columns) -> str | None:
     matched_columns = _match_columns(user_request, columns)
     return matched_columns[0] if matched_columns else None
+
+
+def _summarize_chart(chart: ChartArtifact) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "title": chart.title,
+        "chart_type": chart.chart_type,
+        "description": chart.description,
+    }
+    series = chart.figure.get("data", [])
+    if not series:
+        return summary
+    first_series = series[0]
+    if chart.chart_type == "bar":
+        x_values = first_series.get("x", [])
+        y_values = first_series.get("y", [])
+        summary["values"] = [
+            {"label": label, "value": value}
+            for label, value in zip(x_values[:10], y_values[:10])
+        ]
+    if chart.chart_type == "pie":
+        labels = first_series.get("labels", [])
+        values = first_series.get("values", [])
+        summary["values"] = [
+            {"label": label, "value": value}
+            for label, value in zip(labels[:10], values[:10])
+        ]
+    return summary

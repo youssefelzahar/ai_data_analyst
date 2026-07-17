@@ -28,6 +28,11 @@ class VisualizationDashboardTool(DatasetToolBase):
         "box plot",
         "heatmap",
         "kpi",
+        "kpis",
+        "kpi card",
+        "kpi cards",
+        "card",
+        "cards",
         "table",
     )
 

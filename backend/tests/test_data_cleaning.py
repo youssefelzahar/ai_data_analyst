@@ -1,5 +1,7 @@
 import io
 
+from app.ai.llm.base import LLMResponse
+
 _CLEANING_CSV = (
     b"value,category,note\n"
     b"10,A,This is a fairly long free text note about something\n"
@@ -9,6 +11,22 @@ _CLEANING_CSV = (
     b"1000,B,Extra long free text sample for the outlier row here\n"
     b"10,A,This is a fairly long free text note about something\n"
 )
+
+
+class _CapturingModelService:
+    def __init__(self) -> None:
+        self.last_prompt_variables: dict[str, str] | None = None
+
+    def generate(
+        self,
+        prompt_key: str,
+        *,
+        system_prompt_key: str = "system.default",
+        **prompt_variables: str,
+    ) -> LLMResponse:
+        del prompt_key, system_prompt_key
+        self.last_prompt_variables = prompt_variables
+        return LLMResponse(model="test-model", content="answer", raw_response={})
 
 
 def _upload_cleaning_csv(api_client) -> str:
@@ -120,6 +138,35 @@ def test_apply_creates_version_and_undo_removes_it(api_client) -> None:
     # Original data source file is still untouched throughout.
     original_profile = api_client.get(f"/api/v1/data-sources/{data_source_id}/profile").json()
     assert original_profile["overview"]["row_count"] == 6
+
+
+def test_agent_answers_use_latest_cleaned_version(api_client, monkeypatch) -> None:
+    data_source_id = _upload_cleaning_csv(api_client)
+    model_service = _CapturingModelService()
+    monkeypatch.setattr(
+        "app.ai.dependencies.get_model_service",
+        lambda: model_service,
+    )
+
+    apply_response = api_client.post(
+        f"/api/v1/data-sources/{data_source_id}/cleaning/apply",
+        json={"operations": [{"operation_key": "duplicates.remove"}]},
+    )
+    assert apply_response.status_code == 201
+    assert apply_response.json()["row_count"] == 5
+
+    chat_response = api_client.post(
+        "/api/v1/agent/chat",
+        json={
+            "message": "count rows",
+            "session_id": "cleaned-version-session",
+            "selected_data_source_id": data_source_id,
+        },
+    )
+
+    assert chat_response.status_code == 200
+    assert model_service.last_prompt_variables is not None
+    assert '"count_1": 5' in model_service.last_prompt_variables["tool_result"]
 
 
 def test_undo_without_any_version_returns_400(api_client) -> None:
