@@ -1,4 +1,4 @@
-import json
+﻿import json
 from collections.abc import Iterator
 from typing import Any
 from urllib import error, request
@@ -86,6 +86,12 @@ class OllamaClient(LLMClient):
     """
             ) from e
 
+        except TimeoutError as e:
+            raise OllamaClientError(
+                f"Ollama timed out after {self._model_config.request_timeout_seconds} seconds. "
+                "The model may still be loading or the request is too large."
+            ) from e
+
         except error.URLError as e:
             raise OllamaClientError(
                 f"Cannot connect to Ollama ({target_url}). {e.reason}"
@@ -114,5 +120,10 @@ class OllamaClient(LLMClient):
                     if not decoded_line:
                         continue
                     yield json.loads(decoded_line)
+        except TimeoutError as request_error:
+            raise OllamaClientError(
+                f"Ollama streaming request timed out after {self._model_config.request_timeout_seconds} seconds."
+            ) from request_error
         except (error.URLError, error.HTTPError, json.JSONDecodeError) as request_error:
             raise OllamaClientError(f"Ollama streaming request failed: {request_error}") from request_error
+

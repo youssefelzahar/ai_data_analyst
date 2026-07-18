@@ -1,4 +1,4 @@
-from functools import lru_cache
+﻿from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
@@ -38,12 +38,13 @@ class Settings(BaseSettings):
 
     # --- AI / LLM settings ---
     ai_provider: str = "ollama"
-    ai_default_model: str = " qwen3:4b"
+    ai_default_model: str = "qwen3:4b"
     ai_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    ai_request_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    ai_request_timeout_seconds: int = Field(default=300, ge=1, le=900)
     ollama_base_url: str = "http://localhost:11434"
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
