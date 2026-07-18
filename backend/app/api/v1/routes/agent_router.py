@@ -26,6 +26,7 @@ def chat_with_agent(
             user_request=chat_request.message,
             session_id=chat_request.session_id,
             selected_data_source_id=chat_request.selected_data_source_id,
+            selected_version_id=chat_request.selected_version_id,
         )
     except AgentResponseError as error:
         raise HTTPException(
@@ -38,6 +39,7 @@ def chat_with_agent(
         intent=agent_response.intent,
         selected_tool=agent_response.selected_tool,
         selected_data_source_id=agent_response.selected_data_source_id,
+        selected_version_id=agent_response.selected_version_id,
         visualizations=agent_response.visualizations,
     )
 
@@ -51,6 +53,7 @@ def stream_chat_with_agent(
         user_request=chat_request.message,
         session_id=chat_request.session_id,
         selected_data_source_id=chat_request.selected_data_source_id,
+        selected_version_id=chat_request.selected_version_id,
     )
     return StreamingResponse(
         _stream_agent_content(stream),

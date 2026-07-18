@@ -41,6 +41,7 @@ class ConversationRepository:
         self,
         conversation_id: str,
         selected_data_source_id: str | None = None,
+        selected_version_id: str | None = None,
     ) -> Conversation:
         conversation = self.get_conversation(conversation_id)
         if conversation is not None:
@@ -49,6 +50,7 @@ class ConversationRepository:
         conversation = Conversation(
             id=conversation_id,
             selected_data_source_id=selected_data_source_id,
+            selected_version_id=selected_version_id,
             context_json={},
         )
         self._database_session.add(conversation)
@@ -61,11 +63,15 @@ class ConversationRepository:
         conversation_id: str,
         *,
         selected_data_source_id: str | None = None,
+        selected_version_id: str | None = None,
         context_json: dict | None = None,
         title: str | None = None,
     ) -> Conversation:
-        conversation = self.get_or_create_conversation(conversation_id, selected_data_source_id)
+        conversation = self.get_or_create_conversation(
+            conversation_id, selected_data_source_id, selected_version_id
+        )
         conversation.selected_data_source_id = selected_data_source_id
+        conversation.selected_version_id = selected_version_id
         if context_json is not None:
             conversation.context_json = context_json
         if title is not None and title.strip():

@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
@@ -36,6 +36,25 @@ def create_database_tables() -> None:
     from app.db.models import dataset_version_model  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Adds columns introduced after a table already exists.
+
+    Sufficient while the schema is young; will be replaced by Alembic
+    migrations once the schema needs versioned evolution.
+    """
+    inspector = inspect(engine)
+    if "conversations" not in inspector.get_table_names():
+        return
+    existing_columns = {column["name"] for column in inspector.get_columns("conversations")}
+    if "selected_version_id" in existing_columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE conversations ADD COLUMN selected_version_id VARCHAR(36)")
+        )
 
 
 def get_database_session() -> Generator[Session, None, None]:

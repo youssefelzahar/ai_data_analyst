@@ -14,6 +14,7 @@ class ToolContext:
     conversation_history: Sequence[ConversationMessage]
     session_context: dict[str, Any] = field(default_factory=dict)
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,10 @@ class UnknownTableError(Exception):
     """Raised when the requested table does not exist in the SQL Server source."""
 
 
+class UnknownDatasetVersionError(Exception):
+    """Raised when the requested dataset version does not exist for this data source."""
+
+
 class DatasetFrameService:
     """Loads validated data-source content into a pandas DataFrame."""
 
@@ -37,6 +41,7 @@ class DatasetFrameService:
         self,
         data_source: DataSource,
         table_name: str | None = None,
+        version_id: str | None = None,
     ) -> pd.DataFrame:
         if data_source.source_type == DataSourceType.SQL_SERVER.value:
             if not table_name:
@@ -50,19 +55,30 @@ class DatasetFrameService:
                 )
 
         if (
-            self._use_latest_version
-            and data_source.source_type == DataSourceType.FILE.value
+            data_source.source_type == DataSourceType.FILE.value
             and self._dataset_version_repository is not None
             and self._file_storage is not None
         ):
-            latest_version = self._dataset_version_repository.get_latest(data_source.id)
-            if latest_version is not None:
-                file_path = self._file_storage.get_file_path(latest_version.stored_filename)
-                try:
-                    return pd.read_csv(file_path)
-                except Exception as read_error:
-                    raise DatasetLoadError(
-                        f"Could not read cleaned dataset version: {read_error}"
-                    ) from read_error
+            if version_id is not None:
+                version = self._dataset_version_repository.get_by_id(version_id)
+                if version is None or version.data_source_id != data_source.id:
+                    raise UnknownDatasetVersionError(
+                        f"Dataset version '{version_id}' was not found for this data source."
+                    )
+                return self._read_version_file(version.stored_filename)
+
+            if self._use_latest_version:
+                latest_version = self._dataset_version_repository.get_latest(data_source.id)
+                if latest_version is not None:
+                    return self._read_version_file(latest_version.stored_filename)
 
         return self._dataset_loader.load(data_source, table_name)
+
+    def _read_version_file(self, stored_filename: str) -> pd.DataFrame:
+        file_path = self._file_storage.get_file_path(stored_filename)
+        try:
+            return pd.read_csv(file_path)
+        except Exception as read_error:
+            raise DatasetLoadError(
+                f"Could not read cleaned dataset version: {read_error}"
+            ) from read_error

@@ -19,6 +19,7 @@ class ConversationSession:
     messages: list[ConversationMessage] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
 
 
 class ConversationMemory:
@@ -44,12 +45,14 @@ class ConversationMemory:
         messages: list[ConversationMessage],
         context: dict[str, Any],
         selected_data_source_id: str | None,
+        selected_version_id: str | None = None,
     ) -> ConversationSession:
         session = ConversationSession(
             session_id=session_id,
             messages=list(messages),
             context=dict(context),
             selected_data_source_id=selected_data_source_id,
+            selected_version_id=selected_version_id,
         )
         self._sessions[session_id] = session
         return session
@@ -77,6 +80,12 @@ class ConversationMemory:
     ) -> None:
         session = self.get_or_create_session(session_id)
         session.selected_data_source_id = selected_data_source_id
+
+    def set_selected_version(
+        self, session_id: str, selected_version_id: str | None
+    ) -> None:
+        session = self.get_or_create_session(session_id)
+        session.selected_version_id = selected_version_id
 
     def update_context(self, session_id: str, **context_values: Any) -> None:
         session = self.get_or_create_session(session_id)

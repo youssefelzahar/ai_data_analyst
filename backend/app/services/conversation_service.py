@@ -28,6 +28,7 @@ class ConversationService:
         self,
         session_id: str,
         selected_data_source_id: str | None = None,
+        selected_version_id: str | None = None,
     ) -> None:
         if self._conversation_memory.has_session(session_id):
             return
@@ -35,6 +36,7 @@ class ConversationService:
         conversation = self._conversation_repository.get_or_create_conversation(
             session_id,
             selected_data_source_id,
+            selected_version_id,
         )
         messages = [
             ConversationMessage(
@@ -51,16 +53,19 @@ class ConversationService:
             messages=messages,
             context=conversation.context_json or {},
             selected_data_source_id=conversation.selected_data_source_id,
+            selected_version_id=conversation.selected_version_id,
         )
 
     def sync_selected_data_source(
         self,
         session_id: str,
         selected_data_source_id: str | None,
+        selected_version_id: str | None = None,
     ) -> None:
         self._conversation_repository.update_conversation(
             session_id,
             selected_data_source_id=selected_data_source_id,
+            selected_version_id=selected_version_id,
         )
 
     def sync_context(self, session_id: str, context: dict[str, Any]) -> None:
@@ -103,6 +108,7 @@ class ConversationService:
                     session_id=conversation.id,
                     title=conversation.title,
                     selected_data_source_id=conversation.selected_data_source_id,
+                    selected_version_id=conversation.selected_version_id,
                     updated_at=conversation.updated_at,
                     message_count=len(conversation.messages),
                     last_message_preview=(
@@ -140,6 +146,7 @@ class ConversationService:
             session_id=conversation.id,
             title=conversation.title,
             selected_data_source_id=conversation.selected_data_source_id,
+            selected_version_id=conversation.selected_version_id,
             context=conversation.context_json or {},
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,

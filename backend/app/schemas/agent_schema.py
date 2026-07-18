@@ -11,6 +11,7 @@ class AgentChatRequest(BaseModel):
     message: str = Field(min_length=1)
     session_id: str | None = None
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
 
 
 class AgentChatResponse(BaseModel):
@@ -19,6 +20,7 @@ class AgentChatResponse(BaseModel):
     intent: str
     selected_tool: str
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
     visualizations: VisualizationBundle = Field(default_factory=VisualizationBundle)
 
 

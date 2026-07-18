@@ -67,16 +67,18 @@ class DatasetOperationsService:
         self,
         data_source: DataSource,
         table_name: str | None = None,
+        version_id: str | None = None,
     ) -> pd.DataFrame:
-        return self._dataset_frame_service.load_dataframe(data_source, table_name)
+        return self._dataset_frame_service.load_dataframe(data_source, table_name, version_id)
 
     def preview(
         self,
         data_source: DataSource,
         table_name: str | None = None,
         row_count: int = 10,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         preview = build_preview_response(dataframe, row_count)
         return preview.model_dump(mode="json")
 
@@ -84,8 +86,9 @@ class DatasetOperationsService:
         self,
         data_source: DataSource,
         table_name: str | None = None,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        profile = self._data_profile_service.get_profile(data_source, table_name)
+        profile = self._data_profile_service.get_profile(data_source, table_name, version_id)
         return {
             "overview": profile.overview.model_dump(mode="json"),
             "numeric_statistics": [
@@ -104,8 +107,9 @@ class DatasetOperationsService:
         data_source: DataSource,
         table_name: str | None = None,
         column_names: Sequence[str] | None = None,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        profile = self._data_profile_service.get_profile(data_source, table_name)
+        profile = self._data_profile_service.get_profile(data_source, table_name, version_id)
         requested_columns = set(column_names or [column.column_name for column in profile.columns])
         available_columns = {column.column_name for column in profile.columns}
         missing_columns = sorted(requested_columns - available_columns)
@@ -144,8 +148,9 @@ class DatasetOperationsService:
         table_name: str | None = None,
         limit: int = 10,
         include_nulls: bool = False,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         self._require_columns(dataframe, [column_name])
 
         series = dataframe[column_name]
@@ -168,8 +173,9 @@ class DatasetOperationsService:
         table_name: str | None = None,
         limit: int = 50,
         ascending: bool = False,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         self._require_columns(dataframe, group_columns)
 
         grouped = dataframe.groupby(list(group_columns), dropna=False)
@@ -217,8 +223,9 @@ class DatasetOperationsService:
         column_names: Sequence[str] | None = None,
         table_name: str | None = None,
         method: str = "pearson",
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         requested_columns = list(column_names or [])
         if requested_columns:
             self._require_columns(dataframe, requested_columns)
@@ -254,8 +261,9 @@ class DatasetOperationsService:
         filters: Sequence[FilterCondition],
         table_name: str | None = None,
         limit: int = 50,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         filtered_dataframe = dataframe.copy()
 
         for filter_condition in filters:
@@ -277,8 +285,9 @@ class DatasetOperationsService:
         table_name: str | None = None,
         ascending: bool = True,
         limit: int = 50,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         self._require_columns(dataframe, [column_name])
         sorted_dataframe = dataframe.sort_values(
             by=column_name,
@@ -297,8 +306,9 @@ class DatasetOperationsService:
         data_source: DataSource,
         aggregations: Sequence[AggregationSpec],
         table_name: str | None = None,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        dataframe = self.load_dataframe(data_source, table_name)
+        dataframe = self.load_dataframe(data_source, table_name, version_id)
         requested_aggregations = list(aggregations)
         if not requested_aggregations:
             raise UnsupportedAggregationError("At least one aggregation is required.")

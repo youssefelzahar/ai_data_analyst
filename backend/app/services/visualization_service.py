@@ -25,6 +25,7 @@ class VisualizationError(Exception):
 class VisualizationRequest:
     user_request: str
     table_name: str | None = None
+    version_id: str | None = None
 
 
 class VisualizationService:
@@ -44,10 +45,12 @@ class VisualizationService:
         dataframe = self._dataset_operations_service.load_dataframe(
             data_source,
             visualization_request.table_name,
+            visualization_request.version_id,
         )
         profile = self._data_profile_service.get_profile(
             data_source,
             visualization_request.table_name,
+            visualization_request.version_id,
         )
 
         requested_chart_types = _detect_chart_types(visualization_request.user_request)
@@ -69,6 +72,7 @@ class VisualizationService:
                 data_source,
                 visualization_request.table_name,
                 row_count=25,
+                version_id=visualization_request.version_id,
             )
             tables.append(
                 DataTableArtifact(
@@ -139,6 +143,7 @@ class VisualizationService:
                     data_source,
                     [AggregationSpec(operation="count")],
                     visualization_request.table_name,
+                    visualization_request.version_id,
                 )
                 value = next(iter(result["results"].values()))
                 requested.append(self._kpi("Count Rows", f"{value:,}" if isinstance(value, int) else str(value)))
@@ -149,6 +154,7 @@ class VisualizationService:
                 data_source,
                 [AggregationSpec(operation=operation, column_name=column_name)],
                 visualization_request.table_name,
+                visualization_request.version_id,
             )
             alias, value = next(iter(aggregation_result["results"].items()))
             requested.append(self._kpi(alias.replace("_", " ").title(), str(value)))

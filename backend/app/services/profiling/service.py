@@ -33,8 +33,13 @@ class DataProfileService:
     def __init__(self, dataset_frame_service: DatasetFrameService) -> None:
         self._dataset_frame_service = dataset_frame_service
 
-    def get_profile(self, data_source: DataSource, table_name: str | None = None) -> DataProfileResponse:
-        dataframe = self._load_dataframe(data_source, table_name)
+    def get_profile(
+        self,
+        data_source: DataSource,
+        table_name: str | None = None,
+        version_id: str | None = None,
+    ) -> DataProfileResponse:
+        dataframe = self._load_dataframe(data_source, table_name, version_id)
         return self._build_profile(
             dataframe,
             dataset_name=data_source.name,
@@ -62,8 +67,9 @@ class DataProfileService:
         column_name: str,
         table_name: str | None = None,
         method: str = "iqr",
+        version_id: str | None = None,
     ) -> OutlierRowsResponse:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, version_id)
         if column_name not in dataframe.columns:
             raise UnknownColumnError(f"Column '{column_name}' was not found in this dataset.")
 
@@ -85,8 +91,13 @@ class DataProfileService:
             rows=rows,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_frame_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self,
+        data_source: DataSource,
+        table_name: str | None,
+        version_id: str | None = None,
+    ) -> pd.DataFrame:
+        return self._dataset_frame_service.load_dataframe(data_source, table_name, version_id)
 
     def _build_profile(
         self,

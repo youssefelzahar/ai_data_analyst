@@ -41,6 +41,7 @@ export interface AgentChatRequest {
   message: string;
   session_id?: string;
   selected_data_source_id?: string | null;
+  selected_version_id?: string | null;
 }
 
 export interface AgentChatResponse {
@@ -49,6 +50,7 @@ export interface AgentChatResponse {
   intent: string;
   selected_tool: string;
   selected_data_source_id: string | null;
+  selected_version_id: string | null;
   visualizations: VisualizationBundle;
 }
 
@@ -65,6 +67,7 @@ export interface AgentConversation {
   session_id: string;
   title: string | null;
   selected_data_source_id: string | null;
+  selected_version_id: string | null;
   context: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -75,6 +78,7 @@ export interface AgentConversationSummary {
   session_id: string;
   title: string | null;
   selected_data_source_id: string | null;
+  selected_version_id: string | null;
   updated_at: string;
   message_count: number;
   last_message_preview: string | null;

@@ -54,6 +54,7 @@ class VisualizationDashboardTool(DatasetToolBase):
                 VisualizationRequest(
                     user_request=context.user_request,
                     table_name=table_name,
+                    version_id=context.selected_version_id,
                 ),
             )
             if data_source.source_type == DataSourceType.SQL_SERVER.value and table_name:

@@ -8,6 +8,7 @@ import {
   listConversations,
   sendAgentMessage,
 } from "@/services/agent";
+import { listDatasetVersions } from "@/services/data-cleaning";
 import { listDataSources } from "@/services/data-sources";
 import type {
   AgentConversation,
@@ -16,6 +17,7 @@ import type {
   ConversationMessage,
   DataTableArtifact,
 } from "@/types/agent";
+import type { DatasetVersionResponse } from "@/types/data-cleaning";
 import type { DataSource } from "@/types/data-source";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -23,6 +25,12 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 type DataSourceState =
   | { kind: "loading" }
   | { kind: "ready"; dataSources: DataSource[] }
+  | { kind: "error"; message: string };
+
+type DatasetVersionState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; versions: DatasetVersionResponse[] }
   | { kind: "error"; message: string };
 
 function createSessionId(): string {
@@ -294,6 +302,8 @@ export default function AnalyticsDashboard() {
     kind: "loading",
   });
   const [selectedDataSourceId, setSelectedDataSourceId] = useState("");
+  const [selectedVersionId, setSelectedVersionId] = useState("");
+  const [versionState, setVersionState] = useState<DatasetVersionState>({ kind: "idle" });
   const [conversationSummaries, setConversationSummaries] = useState<AgentConversationSummary[]>([]);
   const [activeConversation, setActiveConversation] = useState<AgentConversation | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
@@ -311,6 +321,22 @@ export default function AnalyticsDashboard() {
       );
   }, []);
 
+  useEffect(() => {
+    if (!selectedDataSourceId) {
+      setVersionState({ kind: "idle" });
+      return;
+    }
+    setVersionState({ kind: "loading" });
+    listDatasetVersions(selectedDataSourceId)
+      .then((versions) => setVersionState({ kind: "ready", versions }))
+      .catch((error: Error) => setVersionState({ kind: "error", message: error.message }));
+  }, [selectedDataSourceId]);
+
+  function handleDataSourceChange(dataSourceId: string) {
+    setSelectedDataSourceId(dataSourceId);
+    setSelectedVersionId("");
+  }
+
   async function refreshConversations() {
     try {
       const response = await listConversations();
@@ -326,6 +352,7 @@ export default function AnalyticsDashboard() {
       setActiveConversation(conversation);
       setSessionId(conversation.session_id);
       setSelectedDataSourceId(conversation.selected_data_source_id ?? "");
+      setSelectedVersionId(conversation.selected_version_id ?? "");
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load conversation.");
@@ -351,6 +378,7 @@ export default function AnalyticsDashboard() {
         message: trimmedMessage,
         session_id: sessionId,
         selected_data_source_id: selectedDataSourceId || null,
+        selected_version_id: selectedVersionId || null,
       });
       const conversation = await getConversation(sessionId);
       setActiveConversation(conversation);
@@ -412,7 +440,7 @@ export default function AnalyticsDashboard() {
               <select
                 id="data-source"
                 value={selectedDataSourceId}
-                onChange={(event) => setSelectedDataSourceId(event.target.value)}
+                onChange={(event) => handleDataSourceChange(event.target.value)}
                 className="mt-3 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
                 disabled={dataSourceState.kind !== "ready"}
               >
@@ -429,6 +457,44 @@ export default function AnalyticsDashboard() {
                   ? `${selectedDataSource.name} (${selectedDataSource.source_type})`
                   : "None selected"}
               </p>
+
+              {selectedDataSourceId && (
+                <>
+                  <label
+                    htmlFor="dataset-version"
+                    className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400"
+                  >
+                    Dataset Version
+                  </label>
+                  <select
+                    id="dataset-version"
+                    value={selectedVersionId}
+                    onChange={(event) => setSelectedVersionId(event.target.value)}
+                    className="mt-3 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+                    disabled={versionState.kind !== "ready" || versionState.versions.length === 0}
+                  >
+                    <option value="">Latest cleaned version (default)</option>
+                    {versionState.kind === "ready" &&
+                      versionState.versions
+                        .slice()
+                        .reverse()
+                        .map((version) => (
+                          <option key={version.id} value={version.id}>
+                            {version.label ?? `Version ${version.version_number}`} ·{" "}
+                            {version.row_count.toLocaleString()} rows
+                          </option>
+                        ))}
+                  </select>
+                  {versionState.kind === "ready" && versionState.versions.length === 0 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      No cleaned versions yet — chatting uses the original upload.
+                    </p>
+                  )}
+                  {versionState.kind === "error" && (
+                    <p className="mt-2 text-xs text-red-400">{versionState.message}</p>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 rounded-xl border border-slate-800 bg-slate-900/70 p-4">

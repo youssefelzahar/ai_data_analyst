@@ -9,7 +9,11 @@ from app.ai.tools.registry import ToolContext, ToolResult
 from app.db.models.data_source_model import DataSource
 from app.repositories.data_source_repository import DataSourceRepository
 from app.schemas.data_source_schema import DataSourceType
-from app.services.dataset_frame_service import MissingTableNameError, UnknownTableError
+from app.services.dataset_frame_service import (
+    MissingTableNameError,
+    UnknownDatasetVersionError,
+    UnknownTableError,
+)
 from app.services.dataset_operations_service import (
     AggregationSpec,
     DatasetOperationError,
@@ -59,6 +63,7 @@ class DatasetToolBase:
             UnsupportedDataSourceError,
             MissingTableNameError,
             UnknownTableError,
+            UnknownDatasetVersionError,
             UnknownColumnError,
             NonNumericColumnError,
         ) as error:
@@ -120,7 +125,9 @@ class DatasetPreviewTool(DatasetToolBase):
         table_name: str | None,
     ) -> dict[str, Any]:
         row_count = _extract_limit(context.user_request, default=5, maximum=_MAX_TOOL_ROWS)
-        return self._dataset_operations_service.preview(data_source, table_name, row_count)
+        return self._dataset_operations_service.preview(
+            data_source, table_name, row_count, context.selected_version_id
+        )
 
 
 class DatasetSummaryTool(DatasetToolBase):
@@ -135,8 +142,9 @@ class DatasetSummaryTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        del context
-        return self._dataset_operations_service.summary(data_source, table_name)
+        return self._dataset_operations_service.summary(
+            data_source, table_name, context.selected_version_id
+        )
 
 
 class ColumnInformationTool(DatasetToolBase):
@@ -151,13 +159,16 @@ class ColumnInformationTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        profile = self._dataset_operations_service.summary(data_source, table_name)
+        profile = self._dataset_operations_service.summary(
+            data_source, table_name, context.selected_version_id
+        )
         available_columns = _extract_columns_from_summary(profile)
         matched_columns = _match_columns(context.user_request, available_columns)
         return self._dataset_operations_service.column_information(
             data_source,
             table_name,
             matched_columns or None,
+            context.selected_version_id,
         )
 
 
@@ -173,7 +184,7 @@ class ValueCountsTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         column_name = _require_single_column(context.user_request, dataframe.columns)
         limit = _extract_limit(
             context.user_request,
@@ -187,10 +198,13 @@ class ValueCountsTool(DatasetToolBase):
             table_name,
             limit,
             include_nulls,
+            context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 class GroupByTool(DatasetToolBase):
@@ -205,7 +219,7 @@ class GroupByTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         group_columns = _extract_group_columns(context.user_request, dataframe.columns)
         if not group_columns:
             raise DatasetToolExecutionError(
@@ -221,10 +235,13 @@ class GroupByTool(DatasetToolBase):
             table_name,
             limit,
             ascending,
+            context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 class CorrelationTool(DatasetToolBase):
@@ -239,16 +256,19 @@ class CorrelationTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         matched_columns = _match_columns(context.user_request, dataframe.columns)
         return self._dataset_operations_service.correlation(
             data_source,
             matched_columns or None,
             table_name,
+            version_id=context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 class FilteringTool(DatasetToolBase):
@@ -263,7 +283,7 @@ class FilteringTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         filters = _extract_filters(context.user_request, dataframe.columns)
         if not filters:
             raise DatasetToolExecutionError(
@@ -275,10 +295,13 @@ class FilteringTool(DatasetToolBase):
             filters,
             table_name,
             limit,
+            context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 class SortingTool(DatasetToolBase):
@@ -293,7 +316,7 @@ class SortingTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         column_name = _require_single_column(context.user_request, dataframe.columns)
         limit = _extract_limit(context.user_request, default=20, maximum=_MAX_TOOL_ROWS)
         ascending = _is_ascending_request(context.user_request)
@@ -303,10 +326,13 @@ class SortingTool(DatasetToolBase):
             table_name,
             ascending,
             limit,
+            context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 class AggregationTool(DatasetToolBase):
@@ -331,7 +357,7 @@ class AggregationTool(DatasetToolBase):
         data_source: DataSource,
         table_name: str | None,
     ) -> dict[str, Any]:
-        dataframe = self._load_dataframe(data_source, table_name)
+        dataframe = self._load_dataframe(data_source, table_name, context.selected_version_id)
         aggregations = _extract_aggregations(context.user_request, dataframe.columns)
         if not aggregations:
             raise DatasetToolExecutionError(
@@ -341,10 +367,13 @@ class AggregationTool(DatasetToolBase):
             data_source,
             aggregations,
             table_name,
+            context.selected_version_id,
         )
 
-    def _load_dataframe(self, data_source: DataSource, table_name: str | None) -> pd.DataFrame:
-        return self._dataset_operations_service.load_dataframe(data_source, table_name)
+    def _load_dataframe(
+        self, data_source: DataSource, table_name: str | None, version_id: str | None = None
+    ) -> pd.DataFrame:
+        return self._dataset_operations_service.load_dataframe(data_source, table_name, version_id)
 
 
 def build_dataset_tools(

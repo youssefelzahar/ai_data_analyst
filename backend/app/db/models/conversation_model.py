@@ -25,6 +25,11 @@ class Conversation(Base):
         ForeignKey("data_sources.id"),
         nullable=True,
     )
+    selected_version_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("dataset_versions.id"),
+        nullable=True,
+    )
     context_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_current_utc_time)
     updated_at: Mapped[datetime] = mapped_column(

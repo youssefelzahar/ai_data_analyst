@@ -26,6 +26,7 @@ class AgentTurn:
     intent: IntentDetectionResult
     tool_result: ToolResult
     selected_data_source_id: str | None
+    selected_version_id: str | None
     visualizations: VisualizationBundle
 
 
@@ -36,6 +37,7 @@ class AnalystAgentResponse:
     intent: str
     selected_tool: str
     selected_data_source_id: str | None
+    selected_version_id: str | None
     visualizations: VisualizationBundle
 
 
@@ -61,8 +63,11 @@ class AnalystAgent:
         user_request: str,
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
+        selected_version_id: str | None = None,
     ) -> AnalystAgentResponse:
-        turn = self._prepare_turn(user_request, session_id, selected_data_source_id)
+        turn = self._prepare_turn(
+            user_request, session_id, selected_data_source_id, selected_version_id
+        )
         used_llm_fallback = False
         try:
             llm_response = self._model_service.generate(
@@ -103,6 +108,7 @@ class AnalystAgent:
             intent=turn.intent.intent,
             selected_tool=turn.tool_result.tool_name,
             selected_data_source_id=turn.selected_data_source_id,
+            selected_version_id=turn.selected_version_id,
             visualizations=turn.visualizations,
         )
 
@@ -111,8 +117,11 @@ class AnalystAgent:
         user_request: str,
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
+        selected_version_id: str | None = None,
     ) -> Iterator[LLMStreamChunk]:
-        turn = self._prepare_turn(user_request, session_id, selected_data_source_id)
+        turn = self._prepare_turn(
+            user_request, session_id, selected_data_source_id, selected_version_id
+        )
         response_parts: list[str] = []
         try:
             for chunk in self._model_service.stream_generate(
@@ -148,22 +157,33 @@ class AnalystAgent:
         user_request: str,
         session_id: str | None,
         selected_data_source_id: str | None,
+        selected_version_id: str | None = None,
     ) -> AgentTurn:
         if session_id:
             self._conversation_service.hydrate_session(
                 session_id,
                 selected_data_source_id,
+                selected_version_id,
             )
         session = self._conversation_memory.get_or_create_session(session_id)
-        if selected_data_source_id != session.selected_data_source_id:
+        if (
+            selected_data_source_id != session.selected_data_source_id
+            or selected_version_id != session.selected_version_id
+        ):
             self._conversation_memory.set_selected_data_source(
                 session.session_id,
                 selected_data_source_id,
             )
+            self._conversation_memory.set_selected_version(
+                session.session_id,
+                selected_version_id,
+            )
             session.selected_data_source_id = selected_data_source_id
+            session.selected_version_id = selected_version_id
             self._conversation_service.sync_selected_data_source(
                 session.session_id,
                 selected_data_source_id,
+                selected_version_id,
             )
 
         user_message_id = self._conversation_service.save_user_message(
@@ -186,6 +206,7 @@ class AnalystAgent:
             ),
             session_context=dict(session.context),
             selected_data_source_id=session.selected_data_source_id,
+            selected_version_id=session.selected_version_id,
         )
         tool_result = self._tool_executor.execute(intent.tool_name, tool_context)
         context_updates = tool_result.metadata.get("session_context_updates", {})
@@ -204,6 +225,7 @@ class AnalystAgent:
             intent=intent,
             tool_result=tool_result,
             selected_data_source_id=session.selected_data_source_id,
+            selected_version_id=session.selected_version_id,
             visualizations=visualizations,
         )
 

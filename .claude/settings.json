@@ -4,7 +4,9 @@
       "Bash(curl -s -o /dev/null -w \"backend:%{http_code}\\\\n\" http://localhost:8000/api/v1/health)",
       "Bash(curl -s -o /dev/null -w \"frontend:%{http_code}\\\\n\" http://localhost:3001/data-sources)",
       "Bash(curl -s http://127.0.0.1:8010/api/v1/health)",
-      "Bash(powershell -NoProfile -Command 'Get-NetTCPConnection -LocalPort 3010 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }')"
+      "Bash(powershell -NoProfile -Command 'Get-NetTCPConnection -LocalPort 3010 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }')",
+      "Bash(./venv/Scripts/python.exe -c \"import app.main; print\\('OK'\\)\")",
+      "Bash(./venv/Scripts/python.exe -c ' *)"
     ]
   }
 }

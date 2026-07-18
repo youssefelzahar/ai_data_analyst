@@ -57,6 +57,7 @@ class ConversationResponse(BaseModel):
     session_id: str
     title: str | None = None
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
     context: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -67,6 +68,7 @@ class ConversationSummaryResponse(BaseModel):
     session_id: str
     title: str | None = None
     selected_data_source_id: str | None = None
+    selected_version_id: str | None = None
     updated_at: datetime
     message_count: int
     last_message_preview: str | None = None
