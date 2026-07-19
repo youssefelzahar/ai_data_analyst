@@ -420,6 +420,12 @@ export default function AnalyticsDashboard() {
               New Conversation
             </button>
             <Link
+              href="/export"
+              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-500 hover:text-white"
+            >
+              Report &amp; Export
+            </Link>
+            <Link
               href="/data-sources"
               className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-500 hover:text-white"
             >

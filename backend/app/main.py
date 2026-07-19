@@ -34,6 +34,9 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Expose the download filename header so browser fetch() can read it
+        # cross-origin (otherwise files save without a proper extension).
+        expose_headers=["Content-Disposition"],
     )
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)

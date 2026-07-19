@@ -6,7 +6,13 @@
       "Bash(curl -s http://127.0.0.1:8010/api/v1/health)",
       "Bash(powershell -NoProfile -Command 'Get-NetTCPConnection -LocalPort 3010 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }')",
       "Bash(./venv/Scripts/python.exe -c \"import app.main; print\\('OK'\\)\")",
-      "Bash(./venv/Scripts/python.exe -c ' *)"
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(./venv/Scripts/python.exe -m pip list)",
+      "Bash(PYTHONPATH=. ./venv/Scripts/python.exe /tmp/export_smoke.py)",
+      "Bash(PYTHONPATH=. ./venv/Scripts/python.exe -c ' *)",
+      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,1\\)\\)\")",
+      "Bash(node_modules/.bin/tsc --noEmit -p tsconfig.json)",
+      "Bash(echo \"TSC EXIT: $?\")"
     ]
   }
 }
