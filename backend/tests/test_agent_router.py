@@ -15,6 +15,7 @@ class _FailingAgent:
         user_request: str,
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
+        **_kwargs,
     ) -> AnalystAgentResponse:
         del user_request, session_id, selected_data_source_id
         raise AgentResponseError("Ollama request failed")
@@ -24,6 +25,7 @@ class _FailingAgent:
         user_request: str,
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
+        **_kwargs,
     ) -> Iterator[LLMStreamChunk]:
         del user_request, session_id, selected_data_source_id
         raise AgentResponseError("Ollama streaming request failed")

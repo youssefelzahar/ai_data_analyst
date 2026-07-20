@@ -29,12 +29,20 @@ class ConversationRepository:
         )
         return self._database_session.scalar(query)
 
-    def list_conversations(self) -> list[Conversation]:
+    def list_conversations(
+        self,
+        company_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[Conversation]:
         query = (
             select(Conversation)
             .options(selectinload(Conversation.messages))
             .order_by(Conversation.updated_at.desc())
         )
+        if company_id is not None:
+            query = query.where(Conversation.company_id == company_id)
+        if user_id is not None:
+            query = query.where(Conversation.user_id == user_id)
         return list(self._database_session.scalars(query).all())
 
     def get_or_create_conversation(
@@ -42,6 +50,8 @@ class ConversationRepository:
         conversation_id: str,
         selected_data_source_id: str | None = None,
         selected_version_id: str | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> Conversation:
         conversation = self.get_conversation(conversation_id)
         if conversation is not None:
@@ -51,12 +61,18 @@ class ConversationRepository:
             id=conversation_id,
             selected_data_source_id=selected_data_source_id,
             selected_version_id=selected_version_id,
+            company_id=company_id,
+            user_id=user_id,
             context_json={},
         )
         self._database_session.add(conversation)
         self._database_session.commit()
         self._database_session.refresh(conversation)
         return self.get_conversation(conversation_id) or conversation
+
+    def delete_conversation(self, conversation: Conversation) -> None:
+        self._database_session.delete(conversation)
+        self._database_session.commit()
 
     def update_conversation(
         self,
@@ -66,9 +82,15 @@ class ConversationRepository:
         selected_version_id: str | None = None,
         context_json: dict | None = None,
         title: str | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> Conversation:
         conversation = self.get_or_create_conversation(
-            conversation_id, selected_data_source_id, selected_version_id
+            conversation_id,
+            selected_data_source_id,
+            selected_version_id,
+            company_id,
+            user_id,
         )
         conversation.selected_data_source_id = selected_data_source_id
         conversation.selected_version_id = selected_version_id
@@ -88,8 +110,12 @@ class ConversationRepository:
         role: str,
         content: str,
         metadata_json: dict | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> ConversationMessageModel:
-        conversation = self.get_or_create_conversation(conversation_id)
+        conversation = self.get_or_create_conversation(
+            conversation_id, company_id=company_id, user_id=user_id
+        )
         message = ConversationMessageModel(
             conversation_id=conversation.id,
             role=role,

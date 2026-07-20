@@ -39,10 +39,14 @@ class SqlToolBase:
         try:
             data_source = self._require_sql_data_source(context)
             payload = self._run(context, data_source)
+            metadata: dict[str, Any] = {"status": "ok", "result": payload}
+            # Surface the executed SQL so the agent can persist it as an artifact.
+            if isinstance(payload, dict) and payload.get("generated_sql"):
+                metadata["generated_sql"] = payload["generated_sql"]
             return ToolResult(
                 tool_name=self.name,
                 content=json.dumps(payload, indent=2, sort_keys=True),
-                metadata={"status": "ok", "result": payload},
+                metadata=metadata,
             )
         except (
             DatasetToolExecutionError,
@@ -155,7 +159,9 @@ class SqlExecuteQueryTool(SqlToolBase):
             page=page,
             page_size=page_size,
         )
-        return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        payload["generated_sql"] = sql
+        return payload
 
 
 def build_sql_tools(

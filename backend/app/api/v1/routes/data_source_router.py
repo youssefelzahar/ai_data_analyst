@@ -3,6 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import (
+    AdminUserDep,
+    CurrentUserDep,
+    ensure_company_access,
+    require_company_member,
+)
+from app.schemas.auth_schema import CurrentUser
 from app.core.config import Settings, get_settings
 from app.db.database import get_database_session
 from app.repositories.data_source_repository import DataSourceRepository
@@ -47,7 +54,11 @@ from app.storage.base import FileTooLargeError
 from app.storage.local import LocalFileStorage
 from app.validators.file_upload_validator import FileUploadValidator, UploadValidationError
 
-router = APIRouter(prefix="/data-sources", tags=["data-sources"])
+router = APIRouter(
+    prefix="/data-sources",
+    tags=["data-sources"],
+    dependencies=[Depends(require_company_member)],
+)
 
 _BAD_REQUEST_ERRORS = (
     UnsupportedDataSourceError,
@@ -156,6 +167,7 @@ def get_sql_query_service(
 )
 def upload_dataset(
     uploaded_file: UploadFile,
+    admin: AdminUserDep,
     file_upload_service: Annotated[FileUploadService, Depends(get_file_upload_service)],
 ) -> DataSourceResponse:
     """Upload a CSV or Excel file and register it as a data source."""
@@ -163,6 +175,8 @@ def upload_dataset(
         saved_data_source = file_upload_service.upload_dataset(
             original_filename=uploaded_file.filename,
             file_stream=uploaded_file.file,
+            company_id=admin.company_id,
+            created_by_user_id=admin.id,
         )
     except UploadValidationError as validation_error:
         raise HTTPException(
@@ -182,18 +196,24 @@ def upload_dataset(
 )
 def create_sql_server_data_source(
     connection_config: SqlServerConnectionCreate,
+    admin: AdminUserDep,
     sql_server_connection_service: Annotated[
         SqlServerConnectionService, Depends(get_sql_server_connection_service)
     ],
 ) -> DataSourceResponse:
     """Save a SQL Server connection configuration as a data source."""
-    saved_data_source = sql_server_connection_service.create_data_source(connection_config)
+    saved_data_source = sql_server_connection_service.create_data_source(
+        connection_config,
+        company_id=admin.company_id,
+        created_by_user_id=admin.id,
+    )
     return DataSourceResponse.model_validate(saved_data_source)
 
 
 @router.post("/sql-server/test", response_model=ConnectionTestResult)
 def test_sql_server_connection(
     connection_config: SqlServerConnectionCreate,
+    _admin: AdminUserDep,
     sql_server_connection_service: Annotated[
         SqlServerConnectionService, Depends(get_sql_server_connection_service)
     ],
@@ -204,12 +224,14 @@ def test_sql_server_connection(
 
 @router.get("", response_model=list[DataSourceResponse])
 def list_data_sources(
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     source_type: DataSourceType | None = None,
 ) -> list[DataSourceResponse]:
-    """List registered data sources, optionally filtered by type."""
+    """List registered data sources for the caller's company, optionally filtered by type."""
     data_sources = data_source_repository.list_data_sources(
-        source_type.value if source_type else None
+        source_type.value if source_type else None,
+        company_id=current_user.company_id,
     )
     return [DataSourceResponse.model_validate(data_source) for data_source in data_sources]
 
@@ -217,26 +239,24 @@ def list_data_sources(
 @router.get("/{data_source_id}", response_model=DataSourceResponse)
 def get_data_source_by_id(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
 ) -> DataSourceResponse:
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     return DataSourceResponse.model_validate(data_source)
 
 
 @router.get("/{data_source_id}/tables", response_model=list[str])
 def list_data_source_tables(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_server_connection_service: Annotated[
         SqlServerConnectionService, Depends(get_sql_server_connection_service)
     ],
 ) -> list[str]:
     """List the tables available in a SQL Server data source's database."""
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     if data_source.source_type != DataSourceType.SQL_SERVER.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -254,10 +274,13 @@ def list_data_source_tables(
 def get_data_source_table_columns(
     data_source_id: str,
     table_name: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
 ) -> SqlTableMetadataResponse:
-    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    data_source = _require_sql_server_data_source(
+        data_source_repository, data_source_id, current_user
+    )
     try:
         return sql_query_service.get_table_metadata(data_source, table_name)
     except _UNPROCESSABLE_ERRORS as read_error:
@@ -270,12 +293,15 @@ def get_data_source_table_columns(
 def preview_data_source_table(
     data_source_id: str,
     table_name: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
     page: int = 1,
     page_size: int = 25,
 ) -> SqlTablePreviewResponse:
-    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    data_source = _require_sql_server_data_source(
+        data_source_repository, data_source_id, current_user
+    )
     try:
         return sql_query_service.preview_table(data_source, table_name, page, page_size)
     except _UNPROCESSABLE_ERRORS as read_error:
@@ -287,14 +313,13 @@ def preview_data_source_table(
 @router.get("/{data_source_id}/preview", response_model=DatasetPreviewResponse)
 def preview_data_source(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     dataset_preview_service: Annotated[DatasetPreviewService, Depends(get_dataset_preview_service)],
     preview_row_count: int = 10,
 ) -> DatasetPreviewResponse:
     """Read the underlying file and return its shape, columns, dtypes, and a sample of rows."""
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         return dataset_preview_service.get_preview(data_source, preview_row_count)
     except UnsupportedDataSourceError as unsupported_error:
@@ -310,15 +335,14 @@ def preview_data_source(
 @router.get("/{data_source_id}/profile", response_model=DataProfileResponse)
 def profile_data_source(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
     table_name: str | None = None,
 ) -> DataProfileResponse:
     """Build a full statistical profile: overview, columns, numeric/categorical stats,
     data-quality checks, and outlier reports — for a file or a SQL Server table."""
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         return data_profile_service.get_profile(data_source, table_name)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -335,15 +359,14 @@ def profile_data_source(
 def get_data_source_outlier_rows(
     data_source_id: str,
     column_name: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     data_profile_service: Annotated[DataProfileService, Depends(get_data_profile_service)],
     table_name: str | None = None,
     method: str = "iqr",
 ) -> OutlierRowsResponse:
     """Return the actual rows flagged as outliers for one numeric column."""
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         return data_profile_service.get_outlier_rows(data_source, column_name, table_name, method)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -356,10 +379,25 @@ def get_data_source_outlier_rows(
         ) from read_error
 
 
-def _require_sql_server_data_source(data_source_repository: DataSourceRepository, data_source_id: str):
+def _require_data_source(
+    data_source_repository: DataSourceRepository,
+    data_source_id: str,
+    current_user: CurrentUser,
+):
+    """Fetch a data source and enforce company ownership (404 on miss/mismatch)."""
     data_source = data_source_repository.get_data_source_by_id(data_source_id)
     if data_source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    ensure_company_access(data_source.company_id, current_user)
+    return data_source
+
+
+def _require_sql_server_data_source(
+    data_source_repository: DataSourceRepository,
+    data_source_id: str,
+    current_user: CurrentUser,
+):
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     if data_source.source_type != DataSourceType.SQL_SERVER.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -372,13 +410,16 @@ def _require_sql_server_data_source(data_source_repository: DataSourceRepository
 def run_data_source_query(
     data_source_id: str,
     query_request: SqlQueryRequest,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
     page: int = 1,
     page_size: int = 100,
 ) -> QueryResultResponse:
     """Execute a read-only SELECT query and return a row-capped result grid."""
-    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    data_source = _require_sql_server_data_source(
+        data_source_repository, data_source_id, current_user
+    )
     try:
         return sql_query_service.execute_query(
             data_source,
@@ -400,11 +441,14 @@ def run_data_source_query(
 def analyze_data_source_query(
     data_source_id: str,
     query_request: SqlQueryRequest,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
 ) -> QueryAnalysisResponse:
     """Run the query via pd.read_sql and return the standard preview + profile."""
-    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    data_source = _require_sql_server_data_source(
+        data_source_repository, data_source_id, current_user
+    )
     try:
         return sql_query_service.analyze_query(data_source, query_request.sql)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -421,10 +465,11 @@ def analyze_data_source_query(
 def validate_data_source_query(
     data_source_id: str,
     query_request: SqlQueryRequest,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
 ) -> QueryValidationResponse:
-    _require_sql_server_data_source(data_source_repository, data_source_id)
+    _require_sql_server_data_source(data_source_repository, data_source_id, current_user)
     try:
         return sql_query_service.validate_query(query_request.sql)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -441,11 +486,14 @@ def validate_data_source_query(
 def convert_data_source_query_to_dataset(
     data_source_id: str,
     query_request: SqlQueryRequest,
+    admin: AdminUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     sql_query_service: Annotated[SqlQueryService, Depends(get_sql_query_service)],
 ) -> DataSourceResponse:
     """Run the query and save the result as a file data source for preview/profile workflows."""
-    data_source = _require_sql_server_data_source(data_source_repository, data_source_id)
+    data_source = _require_sql_server_data_source(
+        data_source_repository, data_source_id, admin
+    )
     try:
         return sql_query_service.convert_query_to_dataset(data_source, query_request.sql)
     except FileTooLargeError as size_error:
@@ -465,12 +513,11 @@ def convert_data_source_query_to_dataset(
 @router.delete("/{data_source_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_data_source(
     data_source_id: str,
+    admin: AdminUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     file_upload_service: Annotated[FileUploadService, Depends(get_file_upload_service)],
 ) -> None:
     """Delete a data source and, for uploaded files, its stored file."""
-    data_source = data_source_repository.get_data_source_by_id(data_source_id)
-    if data_source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    data_source = _require_data_source(data_source_repository, data_source_id, admin)
     file_upload_service.delete_uploaded_file(data_source)
     data_source_repository.delete_data_source(data_source)

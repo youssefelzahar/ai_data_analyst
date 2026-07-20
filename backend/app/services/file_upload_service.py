@@ -27,7 +27,13 @@ class FileUploadService:
         self._upload_validator = upload_validator
         self._max_upload_size_bytes = max_upload_size_bytes
 
-    def upload_dataset(self, original_filename: str | None, file_stream: BinaryIO) -> DataSource:
+    def upload_dataset(
+        self,
+        original_filename: str | None,
+        file_stream: BinaryIO,
+        company_id: str | None = None,
+        created_by_user_id: str | None = None,
+    ) -> DataSource:
         detected_format = self._upload_validator.validate_uploaded_file(original_filename)
 
         file_extension = Path(original_filename or "").suffix.lower()
@@ -46,6 +52,8 @@ class FileUploadService:
             stored_filename=stored_filename,
             file_format=detected_format.value,
             file_size_bytes=file_size_bytes,
+            company_id=company_id,
+            created_by_user_id=created_by_user_id,
         )
         saved_data_source = self._data_source_repository.add_data_source(uploaded_data_source)
         logger.info(

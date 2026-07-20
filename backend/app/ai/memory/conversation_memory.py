@@ -31,6 +31,9 @@ class ConversationMemory:
     def has_session(self, session_id: str) -> bool:
         return session_id in self._sessions
 
+    def drop_session(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
     def get_or_create_session(self, session_id: str | None = None) -> ConversationSession:
         resolved_session_id = session_id or str(uuid4())
         if resolved_session_id not in self._sessions:

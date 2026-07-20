@@ -5,6 +5,7 @@ import Link from "next/link";
 import DatabaseExplorer from "@/features/data-sources/database-explorer";
 import { getDataSource } from "@/services/data-sources";
 import type { DataSource } from "@/types/data-source";
+import { AuthGuard } from "@/components/auth-guard";
 
 export default function SqlEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: dataSourceId } = use(params);
@@ -22,6 +23,7 @@ export default function SqlEditorPage({ params }: { params: Promise<{ id: string
   const isSqlServer = dataSource?.source_type === "sql_server";
 
   return (
+    <AuthGuard>
     <main className="mx-auto max-w-6xl p-8">
       <Link href="/data-sources" className="text-sm text-slate-500 hover:text-slate-300">
         ← Data Sources
@@ -51,5 +53,6 @@ export default function SqlEditorPage({ params }: { params: Promise<{ id: string
         </div>
       )}
     </main>
+    </AuthGuard>
   );
 }

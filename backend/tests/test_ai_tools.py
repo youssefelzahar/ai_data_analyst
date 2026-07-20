@@ -81,7 +81,9 @@ class _StubConversationRepository:
         del conversation_id
         return None
 
-    def get_or_create_conversation(self, conversation_id: str, selected_data_source_id: str | None = None):
+    def get_or_create_conversation(
+        self, conversation_id: str, selected_data_source_id: str | None = None, *args, **kwargs
+    ):
         return SimpleNamespace(
             id=conversation_id,
             title=None,
@@ -99,7 +101,10 @@ class _StubConversationRepository:
         self.selected_data_source_id = kwargs.get("selected_data_source_id")
         return self.get_or_create_conversation("session")
 
-    def add_message(self, conversation_id: str, role: str, content: str, metadata_json: dict | None = None):
+    def add_message(
+        self, conversation_id: str, role: str, content: str, metadata_json: dict | None = None,
+        *args, **kwargs,
+    ):
         message = SimpleNamespace(
             id=f"{role}-{len(self.messages) + 1}",
             conversation_id=conversation_id,

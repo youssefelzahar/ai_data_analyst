@@ -9,6 +9,8 @@ from app.ai.dependencies import (
     get_dataset_version_repository,
     get_visualization_service,
 )
+from app.api.deps import CurrentUserDep, ensure_company_access, require_company_member
+from app.schemas.auth_schema import CurrentUser
 from app.api.v1.routes.data_source_router import get_data_source_repository
 from app.repositories.data_source_repository import DataSourceRepository
 from app.repositories.dataset_version_repository import DatasetVersionRepository
@@ -34,7 +36,11 @@ from app.services.sql_server_connection_service import (
 )
 from app.services.visualization_service import VisualizationError, VisualizationService
 
-router = APIRouter(prefix="/data-sources/{data_source_id}/export", tags=["export"])
+router = APIRouter(
+    prefix="/data-sources/{data_source_id}/export",
+    tags=["export"],
+    dependencies=[Depends(require_company_member)],
+)
 
 _BAD_REQUEST_ERRORS = (
     MissingTableNameError,
@@ -76,34 +82,41 @@ def get_export_service(
     )
 
 
-def _require_data_source(data_source_repository: DataSourceRepository, data_source_id: str):
+def _require_data_source(
+    data_source_repository: DataSourceRepository,
+    data_source_id: str,
+    current_user: CurrentUser,
+):
     data_source = data_source_repository.get_data_source_by_id(data_source_id)
     if data_source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    ensure_company_access(data_source.company_id, current_user)
     return data_source
 
 
 @router.get("/formats", response_model=ExportFormatsResponse)
 def list_export_formats(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     export_service: Annotated[ExportService, Depends(get_export_service)],
 ) -> ExportFormatsResponse:
     """List the available export formats (extensible via the exporter registry)."""
-    _require_data_source(data_source_repository, data_source_id)
+    _require_data_source(data_source_repository, data_source_id, current_user)
     return ExportFormatsResponse(formats=export_service.list_formats())
 
 
 @router.get("/report", response_model=ExportReport)
 def get_export_report(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     export_service: Annotated[ExportService, Depends(get_export_service)],
     table_name: str | None = None,
     version_id: str | None = None,
 ) -> ExportReport:
     """Return the fully-assembled analysis report as JSON (for preview / reuse)."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         return export_service.build_report(data_source, table_name, version_id)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -120,13 +133,14 @@ def get_export_report(
 def download_export(
     data_source_id: str,
     format_key: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(get_data_source_repository)],
     export_service: Annotated[ExportService, Depends(get_export_service)],
     table_name: str | None = None,
     version_id: str | None = None,
 ) -> Response:
     """Generate and stream a downloadable export in the requested format."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         artifact = export_service.export(data_source, format_key, table_name, version_id)
     except UnknownExportFormatError as unknown_format_error:

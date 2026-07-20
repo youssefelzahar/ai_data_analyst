@@ -5,6 +5,7 @@ import Link from "next/link";
 import DataProfile from "@/features/dataset/data-profile";
 import { getDataSource } from "@/services/data-sources";
 import type { DataSource } from "@/types/data-source";
+import { AuthGuard } from "@/components/auth-guard";
 
 export default function DataProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: dataSourceId } = use(params);
@@ -20,6 +21,7 @@ export default function DataProfilePage({ params }: { params: Promise<{ id: stri
   }, [dataSourceId]);
 
   return (
+    <AuthGuard>
     <main className="mx-auto max-w-6xl p-8">
       <Link href="/data-sources" className="text-sm text-slate-500 hover:text-slate-300">
         ← Data Sources
@@ -43,5 +45,6 @@ export default function DataProfilePage({ params }: { params: Promise<{ id: stri
         </div>
       )}
     </main>
+    </AuthGuard>
   );
 }

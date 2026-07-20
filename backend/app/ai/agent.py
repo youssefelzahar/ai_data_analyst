@@ -64,9 +64,16 @@ class AnalystAgent:
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
         selected_version_id: str | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> AnalystAgentResponse:
         turn = self._prepare_turn(
-            user_request, session_id, selected_data_source_id, selected_version_id
+            user_request,
+            session_id,
+            selected_data_source_id,
+            selected_version_id,
+            company_id,
+            user_id,
         )
         used_llm_fallback = False
         try:
@@ -118,9 +125,16 @@ class AnalystAgent:
         session_id: str | None = None,
         selected_data_source_id: str | None = None,
         selected_version_id: str | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> Iterator[LLMStreamChunk]:
         turn = self._prepare_turn(
-            user_request, session_id, selected_data_source_id, selected_version_id
+            user_request,
+            session_id,
+            selected_data_source_id,
+            selected_version_id,
+            company_id,
+            user_id,
         )
         response_parts: list[str] = []
         try:
@@ -158,12 +172,16 @@ class AnalystAgent:
         session_id: str | None,
         selected_data_source_id: str | None,
         selected_version_id: str | None = None,
+        company_id: str | None = None,
+        user_id: str | None = None,
     ) -> AgentTurn:
         if session_id:
             self._conversation_service.hydrate_session(
                 session_id,
                 selected_data_source_id,
                 selected_version_id,
+                company_id,
+                user_id,
             )
         session = self._conversation_memory.get_or_create_session(session_id)
         if (
@@ -184,11 +202,15 @@ class AnalystAgent:
                 session.session_id,
                 selected_data_source_id,
                 selected_version_id,
+                company_id,
+                user_id,
             )
 
         user_message_id = self._conversation_service.save_user_message(
             session.session_id,
             user_request,
+            company_id,
+            user_id,
         )
         self._conversation_memory.add_message(
             session.session_id,
@@ -219,6 +241,16 @@ class AnalystAgent:
         visualizations = VisualizationBundle.model_validate(
             tool_result.metadata.get("visualizations", {})
         )
+        # Capture the analysis artifacts alongside the assistant text so future
+        # Report/Export features can reuse them without re-running the AI.
+        generated_sql = tool_result.metadata.get("generated_sql")
+        if generated_sql and not visualizations.generated_sql:
+            visualizations.generated_sql = generated_sql
+        if session.selected_data_source_id and visualizations.dataset_reference is None:
+            visualizations.dataset_reference = {
+                "data_source_id": session.selected_data_source_id,
+                "version_id": session.selected_version_id,
+            }
         return AgentTurn(
             session_id=session.session_id,
             user_request=user_request,

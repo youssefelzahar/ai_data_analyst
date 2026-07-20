@@ -42,6 +42,14 @@ class VisualizationBundle(BaseModel):
     kpi_cards: list[KpiCardArtifact] = Field(default_factory=list)
     tables: list[DataTableArtifact] = Field(default_factory=list)
     charts: list[ChartArtifact] = Field(default_factory=list)
+    # The SQL the assistant generated/executed for this response, if any.
+    generated_sql: str | None = None
+    # The data source / version this response was produced against.
+    dataset_reference: dict[str, Any] | None = None
+    # Filters applied to produce the artifacts (reserved for future use).
+    applied_filters: dict[str, Any] | None = None
+    # Dashboard layout / grouping metadata (reserved for future use).
+    dashboard: dict[str, Any] | None = None
 
 
 class ConversationMessageResponse(BaseModel):

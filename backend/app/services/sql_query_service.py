@@ -196,5 +196,7 @@ class SqlQueryService:
         saved_data_source = self._file_upload_service.upload_dataset(
             original_filename=f"{data_source.name}-query-result.csv",
             file_stream=BytesIO(csv_payload),
+            company_id=data_source.company_id,
+            created_by_user_id=data_source.created_by_user_id,
         )
         return DataSourceResponse.model_validate(saved_data_source)

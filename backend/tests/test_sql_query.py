@@ -56,7 +56,7 @@ class _StubFileUploadService:
     def __init__(self) -> None:
         self.last_original_filename: str | None = None
 
-    def upload_dataset(self, original_filename: str | None, file_stream):
+    def upload_dataset(self, original_filename: str | None, file_stream, *args, **kwargs):
         self.last_original_filename = original_filename
         return SimpleNamespace(
             id="saved-id",
@@ -74,7 +74,13 @@ class _StubFileUploadService:
 
 
 def _sql_server_data_source():
-    return SimpleNamespace(name="warehouse", source_type="sql_server", file_size_bytes=None)
+    return SimpleNamespace(
+        name="warehouse",
+        source_type="sql_server",
+        file_size_bytes=None,
+        company_id="company-1",
+        created_by_user_id="user-1",
+    )
 
 
 def _build_service(

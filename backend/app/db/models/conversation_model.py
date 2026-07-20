@@ -20,6 +20,14 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_generate_id)
     title: Mapped[str | None] = mapped_column(String(255))
+    # Owning company + user. Nullable for legacy rows backfilled at startup;
+    # new conversations are always stamped with the caller's company and id.
+    company_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("companies.id"), nullable=True, index=True
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True, index=True
+    )
     selected_data_source_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("data_sources.id"),

@@ -125,16 +125,20 @@ class _FakeConversationService:
         self.saved_user_messages: list[tuple[str, str]] = []
         self.saved_assistant_messages: list[tuple[str, str, dict, VisualizationBundle]] = []
 
-    def hydrate_session(self, session_id: str, selected_data_source_id: str | None = None) -> None:
-        del session_id, selected_data_source_id
+    def hydrate_session(
+        self, session_id: str, selected_data_source_id: str | None = None, *args, **kwargs
+    ) -> None:
+        del session_id, selected_data_source_id, args, kwargs
 
-    def sync_selected_data_source(self, session_id: str, selected_data_source_id: str | None) -> None:
-        del session_id, selected_data_source_id
+    def sync_selected_data_source(
+        self, session_id: str, selected_data_source_id: str | None, *args, **kwargs
+    ) -> None:
+        del session_id, selected_data_source_id, args, kwargs
 
     def sync_context(self, session_id: str, context: dict) -> None:
         del session_id, context
 
-    def save_user_message(self, session_id: str, content: str) -> str:
+    def save_user_message(self, session_id: str, content: str, *args, **kwargs) -> str:
         self.saved_user_messages.append((session_id, content))
         return "user-message-id"
 

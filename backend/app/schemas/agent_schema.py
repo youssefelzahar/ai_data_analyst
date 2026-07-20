@@ -24,6 +24,10 @@ class AgentChatResponse(BaseModel):
     visualizations: VisualizationBundle = Field(default_factory=VisualizationBundle)
 
 
+class RenameConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
 class AgentConversationListResponse(BaseModel):
     conversations: list[ConversationSummaryResponse]
 

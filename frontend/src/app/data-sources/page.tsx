@@ -4,10 +4,19 @@ import { useState } from "react";
 import Link from "next/link";
 import FileUploadPanel from "@/features/data-sources/file-upload-panel";
 import SqlServerConnectionPanel from "@/features/data-sources/sql-server-connection-panel";
+import { AuthGuard } from "@/components/auth-guard";
 
 type DataSourceTab = "upload" | "sql_server";
 
 export default function DataSourcesPage() {
+  return (
+    <AuthGuard requireAdmin>
+      <DataSourcesContent />
+    </AuthGuard>
+  );
+}
+
+function DataSourcesContent() {
   const [activeTab, setActiveTab] = useState<DataSourceTab>("upload");
 
   const tabClassName = (tab: DataSourceTab) =>

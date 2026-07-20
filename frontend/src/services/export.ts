@@ -1,4 +1,4 @@
-import { API_URL, request } from "@/services/api";
+import { authorizedFetch, request } from "@/services/api";
 import type { ExportFormatsResponse, ExportReport } from "@/types/export";
 
 interface ExportOptions {
@@ -38,8 +38,8 @@ export async function downloadExport(
   formatKey: string,
   options?: ExportOptions,
 ): Promise<void> {
-  const response = await fetch(
-    `${API_URL}/data-sources/${dataSourceId}/export/${formatKey}${buildQuery(options)}`,
+  const response = await authorizedFetch(
+    `/data-sources/${dataSourceId}/export/${formatKey}${buildQuery(options)}`,
     { method: "GET" },
   );
 

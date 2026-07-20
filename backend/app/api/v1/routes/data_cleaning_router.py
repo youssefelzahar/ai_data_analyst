@@ -3,6 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import (
+    AdminUserDep,
+    CurrentUserDep,
+    ensure_company_access,
+    require_company_member,
+)
+from app.schemas.auth_schema import CurrentUser
 from app.core.config import Settings, get_settings
 from app.db.database import get_database_session
 from app.repositories.data_source_repository import DataSourceRepository
@@ -36,7 +43,11 @@ from app.services.sql_server_connection_service import (
 )
 from app.storage.local import LocalFileStorage
 
-router = APIRouter(prefix="/data-sources/{data_source_id}/cleaning", tags=["data-cleaning"])
+router = APIRouter(
+    prefix="/data-sources/{data_source_id}/cleaning",
+    tags=["data-cleaning"],
+    dependencies=[Depends(require_company_member)],
+)
 
 _BAD_REQUEST_ERRORS = (
     MissingTableNameError,
@@ -130,23 +141,27 @@ def get_data_cleaning_service(
 
 
 def _require_data_source(
-    data_source_repository: DataSourceRepository, data_source_id: str
+    data_source_repository: DataSourceRepository,
+    data_source_id: str,
+    current_user: CurrentUser,
 ):
     data_source = data_source_repository.get_data_source_by_id(data_source_id)
     if data_source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
+    ensure_company_access(data_source.company_id, current_user)
     return data_source
 
 
 @router.get("/recommendations", response_model=CleaningRecommendationsResponse)
 def get_cleaning_recommendations(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
     table_name: str | None = None,
 ) -> CleaningRecommendationsResponse:
     """Suggest cleaning strategies per column, with a plain-language reason for each."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     try:
         return data_cleaning_service.get_recommendations(data_source, table_name)
     except _BAD_REQUEST_ERRORS as bad_request_error:
@@ -162,11 +177,12 @@ def get_cleaning_recommendations(
 @router.get("/methods", response_model=CleaningMethodsCatalog)
 def get_cleaning_methods(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
 ) -> CleaningMethodsCatalog:
     """List every available cleaning method, grouped by category."""
-    _require_data_source(data_source_repository, data_source_id)
+    _require_data_source(data_source_repository, data_source_id, current_user)
     return data_cleaning_service.list_available_methods()
 
 
@@ -174,12 +190,13 @@ def get_cleaning_methods(
 def preview_cleaning_pipeline(
     data_source_id: str,
     pipeline_request: CleaningPipelineRequest,
+    admin: AdminUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
 ) -> PipelinePreviewResponse:
     """Run the selected operations against an in-memory copy and report the impact.
     Nothing is written to storage."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, admin)
     try:
         return data_cleaning_service.preview_pipeline(
             data_source, pipeline_request.table_name, pipeline_request.operations
@@ -198,12 +215,13 @@ def preview_cleaning_pipeline(
 def apply_cleaning_pipeline(
     data_source_id: str,
     pipeline_request: CleaningPipelineRequest,
+    admin: AdminUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
 ) -> DatasetVersionResponse:
     """Apply the selected operations and persist the result as a new dataset version.
     The original data source file is never modified."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, admin)
     try:
         return data_cleaning_service.apply_pipeline(
             data_source, pipeline_request.table_name, pipeline_request.operations
@@ -221,22 +239,24 @@ def apply_cleaning_pipeline(
 @router.get("/versions", response_model=list[DatasetVersionResponse])
 def list_dataset_versions(
     data_source_id: str,
+    current_user: CurrentUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
 ) -> list[DatasetVersionResponse]:
     """List every applied cleaning version for this data source, oldest first."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, current_user)
     return data_cleaning_service.list_versions(data_source)
 
 
 @router.delete("/versions/latest", status_code=status.HTTP_204_NO_CONTENT)
 def undo_last_dataset_version(
     data_source_id: str,
+    admin: AdminUserDep,
     data_source_repository: Annotated[DataSourceRepository, Depends(_get_data_source_repository)],
     data_cleaning_service: Annotated[DataCleaningService, Depends(get_data_cleaning_service)],
 ) -> None:
     """Undo the most recently applied cleaning version, reverting to the one before it."""
-    data_source = _require_data_source(data_source_repository, data_source_id)
+    data_source = _require_data_source(data_source_repository, data_source_id, admin)
     try:
         data_cleaning_service.undo_last_version(data_source)
     except NoVersionToUndoError as undo_error:

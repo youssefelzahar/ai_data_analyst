@@ -16,10 +16,16 @@ class DataSourceRepository:
         self._database_session.refresh(data_source)
         return data_source
 
-    def list_data_sources(self, source_type: str | None = None) -> list[DataSource]:
+    def list_data_sources(
+        self,
+        source_type: str | None = None,
+        company_id: str | None = None,
+    ) -> list[DataSource]:
         query = select(DataSource).order_by(DataSource.created_at.desc())
         if source_type is not None:
             query = query.where(DataSource.source_type == source_type)
+        if company_id is not None:
+            query = query.where(DataSource.company_id == company_id)
         return list(self._database_session.scalars(query).all())
 
     def get_data_source_by_id(self, data_source_id: str) -> DataSource | None:

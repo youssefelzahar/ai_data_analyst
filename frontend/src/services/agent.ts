@@ -1,10 +1,26 @@
-import { API_URL, request } from "@/services/api";
+import { API_URL, buildHeaders, request } from "@/services/api";
 import type {
   AgentChatRequest,
   AgentChatResponse,
   AgentConversation,
   AgentConversationListResponse,
 } from "@/types/agent";
+
+export function renameConversation(
+  sessionId: string,
+  title: string,
+): Promise<AgentConversation> {
+  return request<AgentConversation>(`/agent/conversations/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function deleteConversation(sessionId: string): Promise<void> {
+  return request<void>(`/agent/conversations/${sessionId}`, {
+    method: "DELETE",
+  });
+}
 
 export function sendAgentMessage(
   chatRequest: AgentChatRequest,
@@ -27,10 +43,13 @@ export async function streamAgentMessage(
   chatRequest: AgentChatRequest,
   onChunk: (chunk: string) => void,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/agent/chat/stream`, {
+  const streamInit: RequestInit = {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(chatRequest),
+  };
+  const response = await fetch(`${API_URL}/agent/chat/stream`, {
+    ...streamInit,
+    headers: buildHeaders(streamInit),
   });
 
   if (!response.ok) {

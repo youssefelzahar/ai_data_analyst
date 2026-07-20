@@ -1,4 +1,5 @@
 import { API_URL, request } from "@/services/api";
+import { getAccessToken } from "@/lib/auth-storage";
 import type {
   ConnectionTestResult,
   DataSource,
@@ -52,6 +53,10 @@ export function uploadDatasetFile(
   return new Promise((resolve, reject) => {
     const uploadRequest = new XMLHttpRequest();
     uploadRequest.open("POST", `${API_URL}/data-sources/upload`);
+    const token = getAccessToken();
+    if (token) {
+      uploadRequest.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
 
     uploadRequest.upload.onprogress = (progressEvent) => {
       if (progressEvent.lengthComputable) {

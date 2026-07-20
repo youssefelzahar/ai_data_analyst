@@ -33,6 +33,24 @@ class Settings(BaseSettings):
     # Symmetric key used to encrypt stored data source credentials.
     secret_key: str = "change-me-in-production"
 
+    # --- Authentication / JWT settings ---
+    # Signing key for JWTs. Defaults to secret_key when left empty.
+    jwt_secret_key: str = ""
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
+    # Bootstrap admin + company seeded on first startup (idempotent).
+    bootstrap_company_name: str = "Default Company"
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = "admin123"
+
+    # Bootstrap superadmin (platform owner) seeded on first startup (idempotent).
+    # The superadmin's only capability is creating admins.
+    bootstrap_superadmin_username: str = "youssefelzahar"
+    bootstrap_superadmin_password: str = "123456"
+    bootstrap_superadmin_company: str = "ai_analysis"
+
     upload_directory: str = "./uploaded_files"
     max_upload_size_mb: int = 200
 
@@ -42,6 +60,11 @@ class Settings(BaseSettings):
     ai_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     ai_request_timeout_seconds: int = Field(default=300, ge=1, le=900)
     ollama_base_url: str = "http://localhost:11434"
+
+    @property
+    def effective_jwt_secret_key(self) -> str:
+        """The key used to sign JWTs, falling back to secret_key when unset."""
+        return self.jwt_secret_key or self.secret_key
 
 
 @lru_cache

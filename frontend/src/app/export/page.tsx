@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import ExportPanel from "@/features/export/export-panel";
+import { AuthGuard } from "@/components/auth-guard";
 
 export default function ExportHubPage() {
+  return (
+    <AuthGuard>
+      <ExportHubContent />
+    </AuthGuard>
+  );
+}
+
+function ExportHubContent() {
   return (
     <main className="mx-auto max-w-6xl p-8">
       <Link href="/" className="text-sm text-slate-500 hover:text-slate-300">

@@ -228,7 +228,12 @@ class SqlServerConnectionService:
             ),
         )
 
-    def create_data_source(self, connection_config: SqlServerConnectionCreate) -> DataSource:
+    def create_data_source(
+        self,
+        connection_config: SqlServerConnectionCreate,
+        company_id: str | None = None,
+        created_by_user_id: str | None = None,
+    ) -> DataSource:
         encrypted_password = (
             encrypt_secret(connection_config.password) if connection_config.password else None
         )
@@ -240,6 +245,8 @@ class SqlServerConnectionService:
             authentication_type=connection_config.authentication_type.value,
             username=connection_config.username,
             encrypted_password=encrypted_password,
+            company_id=company_id,
+            created_by_user_id=created_by_user_id,
         )
         saved_data_source = self._data_source_repository.add_data_source(sql_server_data_source)
         logger.info("Saved SQL Server connection %s", saved_data_source.id)
