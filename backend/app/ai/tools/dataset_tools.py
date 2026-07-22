@@ -116,8 +116,60 @@ class DatasetPreviewTool(DatasetToolBase):
     name = "dataset_preview"
     description = "Returns a sample of dataset rows and basic shape information."
     intents = ("preview_dataset",)
-    keywords = ("preview", "sample", "show rows", "first rows", "top rows", "head")
+    keywords = (
+        # General preview
+        "preview",
+        "sample",
+        "show data",
+        "show dataset",
+        "show table",
+        "display data",
+        "display dataset",
+        "view data",
+        "view dataset",
 
+        # First rows
+        "head",
+        "show head",
+        "first rows",
+        "first row",
+        "top rows",
+        "top row",
+        "show first",
+        "show first rows",
+        "show first 5 rows",
+        "show first 10 rows",
+        "show top",
+        "show top rows",
+        "show top 5 rows",
+        "show top 10 rows",
+
+        # Records
+        "sample rows",
+        "sample data",
+        "sample records",
+        "show sample",
+        "show sample data",
+        "show sample rows",
+
+        # Display commands
+        "display rows",
+        "display records",
+        "display first rows",
+        "list rows",
+        "list records",
+
+        # Inspection
+        "peek",
+        "peek data",
+        "peek dataset",
+        "inspect data",
+        "inspect dataset",
+
+        # Pandas terminology
+        "head()",
+        "df.head",
+    )
     def _run(
         self,
         context: ToolContext,
@@ -134,7 +186,22 @@ class DatasetSummaryTool(DatasetToolBase):
     name = "dataset_summary"
     description = "Returns dataset-level summary statistics and quality information."
     intents = ("summarize_dataset",)
-    keywords = ("summarize", "summary", "describe", "overview", "profile", "dataset summary")
+    keywords = (
+        "summarize",
+        "summary",
+        "describe",
+        "overview",
+        "profile",
+        "dataset summary",
+        "analyze",
+        "analyse",
+        "analysis",
+        "insights",
+        "explore",
+        "tell me about",
+        "what can you tell me",
+        "understand the data",
+    )
 
     def _run(
         self,
@@ -176,7 +243,17 @@ class ValueCountsTool(DatasetToolBase):
     name = "value_counts"
     description = "Counts occurrences of distinct values in one column."
     intents = ("value_counts",)
-    keywords = ("value counts", "frequency", "frequencies", "most common", "distinct values")
+    keywords = (
+        "value counts",
+        "frequency",
+        "frequencies",
+        "most common",
+        "distinct values",
+        "how many of each",
+        "distribution of",
+        "count by value",
+        "unique values",
+    )
 
     def _run(
         self,
@@ -248,7 +325,17 @@ class CorrelationTool(DatasetToolBase):
     name = "correlation"
     description = "Computes correlations between numeric columns."
     intents = ("correlation",)
-    keywords = ("correlation", "correlate", "relationship", "correlation matrix")
+    keywords = (
+        "correlation",
+        "correlate",
+        "relationship",
+        "correlation matrix",
+        "related",
+        "correlated",
+        "connection between",
+        "affect",
+        "impact",
+    )
 
     def _run(
         self,
@@ -349,6 +436,10 @@ class AggregationTool(DatasetToolBase):
         "count",
         "median",
         "total",
+        "how much",
+        "how many",
+        "grand total",
+        "overall",
     )
 
     def _run(

@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/context/auth-context";
 import { listDatasetVersions } from "@/services/data-cleaning";
 import { listDataSources } from "@/services/data-sources";
+import { downloadConversationExport } from "@/services/export";
 import type {
   AgentConversation,
   AgentConversationSummary,
@@ -315,6 +316,8 @@ export default function AnalyticsDashboard() {
   const [draftMessage, setDraftMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState("pdf");
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     const freshSessionId = createSessionId();
@@ -433,6 +436,21 @@ export default function AnalyticsDashboard() {
       setErrorMessage(error instanceof Error ? error.message : "Unable to reach the agent.");
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function handleExportConversation() {
+    if (!activeConversation || isExporting) return;
+    setIsExporting(true);
+    setErrorMessage(null);
+    try {
+      await downloadConversationExport(activeConversation.session_id, exportFormat);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to export the conversation.",
+      );
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -623,13 +641,38 @@ export default function AnalyticsDashboard() {
           </aside>
 
           <section className="flex min-h-[720px] flex-col rounded-xl border border-slate-800 bg-slate-900">
-            <div className="border-b border-slate-800 px-5 py-4">
-              <h2 className="text-lg font-semibold">
-                {activeConversation?.title ?? "New Conversation"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Session {sessionId ? sessionId.slice(0, 8) : "starting"}
-              </p>
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {activeConversation?.title ?? "New Conversation"}
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Session {sessionId ? sessionId.slice(0, 8) : "starting"}
+                </p>
+              </div>
+              {messages.length > 0 && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <select
+                    value={exportFormat}
+                    onChange={(event) => setExportFormat(event.target.value)}
+                    disabled={isExporting}
+                    aria-label="Export format"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500 disabled:opacity-60"
+                  >
+                    <option value="pdf">PDF</option>
+                    <option value="excel">Excel</option>
+                    <option value="powerbi">Power BI</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleExportConversation}
+                    disabled={isExporting}
+                    className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isExporting ? "Exporting..." : "Export"}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">

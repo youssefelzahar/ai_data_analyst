@@ -187,6 +187,111 @@ def test_intent_detector_falls_back_to_registered_general_tool() -> None:
     assert detected_intent.tool_name == "no_available_tool"
 
 
+class _StubTool:
+    def __init__(
+        self,
+        name: str,
+        intents: tuple[str, ...],
+        keywords: tuple[str, ...] = (),
+    ) -> None:
+        self.name = name
+        self.description = f"Stub tool {name}."
+        self.intents = intents
+        self.keywords = keywords
+
+    def execute(self, context):  # pragma: no cover - not exercised by intent tests
+        del context
+        raise NotImplementedError
+
+
+class _ScriptedLLMClient:
+    """Fake LLM client returning a canned classification and counting calls."""
+
+    def __init__(self, content: str = "", error: Exception | None = None) -> None:
+        self.content = content
+        self.error = error
+        self.call_count = 0
+
+    def generate(self, request_payload: LLMRequest) -> LLMResponse:
+        self.call_count += 1
+        if self.error is not None:
+            raise self.error
+        return LLMResponse(model="qwen3:4b", content=self.content, raw_response={})
+
+    def stream_generate(self, request_payload: LLMRequest):  # pragma: no cover
+        yield LLMStreamChunk(model="qwen3:4b", content="", done=True, raw_response={})
+
+
+def _classifier_detector(scripted_client: _ScriptedLLMClient) -> IntentDetector:
+    registry = ToolRegistry()
+    registry.register(_StubTool("dataset_summary", ("summarize_dataset",), ("summarize",)))
+    registry.register(NoAvailableTool())
+    model_service = ModelService(scripted_client, PromptManager())
+    return IntentDetector(registry, model_service)
+
+
+def test_intent_detector_prefers_keyword_match_without_calling_llm() -> None:
+    scripted_client = _ScriptedLLMClient(content='{"tool_name": "no_available_tool"}')
+    detector = _classifier_detector(scripted_client)
+
+    detected_intent = detector.detect("please summarize this")
+
+    assert detected_intent.tool_name == "dataset_summary"
+    assert scripted_client.call_count == 0
+
+
+def test_intent_detector_uses_llm_fallback_for_unmatched_phrasing() -> None:
+    scripted_client = _ScriptedLLMClient(
+        content=(
+            '<think>the user wants an overview</think>\n'
+            '{"tool_name": "dataset_summary", "confidence": 0.82, '
+            '"rationale": "wants a data overview"}'
+        )
+    )
+    detector = _classifier_detector(scripted_client)
+
+    detected_intent = detector.detect("what stands out in here?")
+
+    assert scripted_client.call_count == 1
+    assert detected_intent.tool_name == "dataset_summary"
+    assert detected_intent.intent == "summarize_dataset"
+    assert detected_intent.confidence == 0.82
+
+
+def test_intent_detector_llm_fallback_ignores_unknown_tool() -> None:
+    scripted_client = _ScriptedLLMClient(content='{"tool_name": "made_up_tool"}')
+    detector = _classifier_detector(scripted_client)
+
+    detected_intent = detector.detect("what stands out in here?")
+
+    assert detected_intent.tool_name == "no_available_tool"
+
+
+def test_intent_detector_llm_fallback_handles_none_and_malformed_output() -> None:
+    for content in ('{"tool_name": "none"}', "not json at all"):
+        detector = _classifier_detector(_ScriptedLLMClient(content=content))
+        assert detector.detect("what stands out in here?").tool_name == "no_available_tool"
+
+
+def test_intent_detector_llm_fallback_survives_client_error() -> None:
+    from app.ai.llm.ollama_client import OllamaClientError
+
+    detector = _classifier_detector(
+        _ScriptedLLMClient(error=OllamaClientError("ollama down"))
+    )
+
+    detected_intent = detector.detect("what stands out in here?")
+
+    assert detected_intent.tool_name == "no_available_tool"
+
+
+def test_dataset_summary_tool_recognizes_natural_phrasings() -> None:
+    from app.ai.tools.dataset_tools import DatasetSummaryTool
+
+    for phrase in ("analyze", "analysis", "insights", "explore"):
+        assert phrase in DatasetSummaryTool.keywords
+
+
 def test_conversation_memory_tracks_session_messages_and_context() -> None:
     memory = ConversationMemory()
     session = memory.get_or_create_session("session-1")

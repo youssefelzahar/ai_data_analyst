@@ -27,6 +27,22 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Recent conversation:\n${conversation_context}\n\n"
         "Write the assistant response."
     ),
+    "system.intent_classifier": (
+        "You are the request router for an AI data analyst. "
+        "Given a user request and a catalog of available tools, choose the single "
+        "tool that best fulfills the request. "
+        "Respond with ONLY a JSON object and nothing else - no prose, no markdown, "
+        "no code fences, no explanation before or after. "
+        'The JSON must have exactly these keys: "tool_name" (a string that is either '
+        'one of the exact tool names from the catalog, or "none" if no tool fits), '
+        '"confidence" (a number between 0 and 1), and "rationale" (a short string). '
+        "Never invent a tool name that is not in the catalog."
+    ),
+    "intent.classify": (
+        "Available tools:\n${tool_catalog}\n\n"
+        "User request:\n${user_request}\n\n"
+        "Return the JSON object selecting the best tool."
+    ),
 }
 
 

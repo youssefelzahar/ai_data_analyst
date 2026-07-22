@@ -34,6 +34,11 @@ class VisualizationDashboardTool(DatasetToolBase):
         "card",
         "cards",
         "table",
+        "visualise",
+        "show me a chart",
+        "draw",
+        "diagram",
+        "report",
     )
 
     def __init__(

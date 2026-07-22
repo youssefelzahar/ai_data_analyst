@@ -38,10 +38,42 @@ export async function downloadExport(
   formatKey: string,
   options?: ExportOptions,
 ): Promise<void> {
-  const response = await authorizedFetch(
+  await downloadFromEndpoint(
     `/data-sources/${dataSourceId}/export/${formatKey}${buildQuery(options)}`,
-    { method: "GET" },
+    formatKey,
+    options?.fallbackExtension,
   );
+}
+
+/** List the formats a conversation can be exported to (PDF, Excel, Power BI). */
+export function listConversationExportFormats(
+  sessionId: string,
+): Promise<ExportFormatsResponse> {
+  return request<ExportFormatsResponse>(
+    `/agent/conversations/${sessionId}/export/formats`,
+  );
+}
+
+/**
+ * Export a chat conversation's analysis artifacts (KPIs, charts, tables, SQL)
+ * to the requested format and trigger a browser download.
+ */
+export async function downloadConversationExport(
+  sessionId: string,
+  formatKey: string,
+): Promise<void> {
+  await downloadFromEndpoint(
+    `/agent/conversations/${sessionId}/export/${formatKey}`,
+    formatKey,
+  );
+}
+
+async function downloadFromEndpoint(
+  path: string,
+  formatKey: string,
+  fallbackExtension?: string,
+): Promise<void> {
+  const response = await authorizedFetch(path, { method: "GET" });
 
   if (!response.ok) {
     let message = `Export failed (HTTP ${response.status})`;
@@ -58,7 +90,7 @@ export async function downloadExport(
   const filename = extractFilename(
     response.headers.get("Content-Disposition"),
     formatKey,
-    options?.fallbackExtension,
+    fallbackExtension,
   );
   triggerBrowserDownload(blob, filename);
 }

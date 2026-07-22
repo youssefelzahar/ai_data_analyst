@@ -163,7 +163,7 @@ def get_tool_executor(tool_registry: ToolRegistry) -> ToolExecutor:
 
 
 def get_intent_detector(tool_registry: ToolRegistry) -> IntentDetector:
-    return IntentDetector(tool_registry)
+    return IntentDetector(tool_registry, get_model_service())
 
 
 def get_analyst_agent(

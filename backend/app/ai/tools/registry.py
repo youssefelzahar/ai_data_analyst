@@ -87,7 +87,7 @@ class ToolRegistry:
 
 class NoAvailableTool:
     name = "no_available_tool"
-    description = "Responds when no analyst tools have been registered yet."
+    description = "Responds when no specialized tool matched the request."
     intents = ("general_chat", "unknown")
     keywords: tuple[str, ...] = ()
 
@@ -96,10 +96,17 @@ class NoAvailableTool:
         return ToolResult(
             tool_name=self.name,
             content=(
-                "No data analysis tools are available in this foundation phase. "
-                "Acknowledge the request and explain that tool capabilities will be added later."
+                "The request did not map to a specific analysis tool. "
+                "Briefly and helpfully respond to the user. Do NOT say that analysis "
+                "capabilities are unavailable or coming later - they exist now. "
+                "Explain what you can do: summarize and profile a dataset; preview rows; "
+                "compute aggregations (sum, average, min, max, count, median); group by "
+                "columns; find correlations; filter and sort rows; count value frequencies; "
+                "run SQL queries; and build dashboards with KPI cards, tables, and charts. "
+                "Ask the user to select a data source (if none is selected) or to rephrase "
+                "which of these they would like."
             ),
-            metadata={"phase": "agent_foundation"},
+            metadata={"status": "general_chat"},
         )
 
 

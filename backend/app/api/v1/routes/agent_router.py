@@ -1,6 +1,7 @@
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from app.ai.agent import AgentResponseError, AnalystAgent
@@ -13,15 +14,24 @@ from app.schemas.agent_schema import (
     AgentConversationResponse,
     RenameConversationRequest,
 )
+from app.schemas.export_schema import ExportFormatsResponse
 from app.services.conversation_service import (
     ConversationAccessError,
     ConversationNotFoundError,
     ConversationService,
 )
+from app.services.export.base import ExportArtifact, UnknownExportFormatError
+from app.services.export.chat import ChatExportService
 
 router = APIRouter(
     prefix="/agent", tags=["agent"], dependencies=[Depends(require_company_member)]
 )
+
+_chat_export_service = ChatExportService()
+
+
+def get_chat_export_service() -> ChatExportService:
+    return _chat_export_service
 
 
 @router.post("/chat", response_model=AgentChatResponse)
@@ -101,6 +111,40 @@ def get_agent_conversation(
     return AgentConversationResponse.model_validate(conversation.model_dump())
 
 
+@router.get(
+    "/conversations/{session_id}/export/formats",
+    response_model=ExportFormatsResponse,
+)
+def list_chat_export_formats(
+    session_id: str,
+    current_user: CurrentUserDep,
+    conversation_service: Annotated[ConversationService, Depends(get_conversation_service)],
+    chat_export_service: Annotated[ChatExportService, Depends(get_chat_export_service)],
+) -> ExportFormatsResponse:
+    """List the formats a conversation can be exported to (PDF, Excel, Power BI)."""
+    _require_conversation(conversation_service, session_id, current_user)
+    return ExportFormatsResponse(formats=chat_export_service.list_formats())
+
+
+@router.get("/conversations/{session_id}/export/{format_key}")
+def download_chat_export(
+    session_id: str,
+    format_key: str,
+    current_user: CurrentUserDep,
+    conversation_service: Annotated[ConversationService, Depends(get_conversation_service)],
+    chat_export_service: Annotated[ChatExportService, Depends(get_chat_export_service)],
+) -> Response:
+    """Generate and stream the conversation's analysis artifacts in a format."""
+    conversation = _require_conversation(conversation_service, session_id, current_user)
+    try:
+        artifact = chat_export_service.export(conversation, format_key)
+    except UnknownExportFormatError as unknown_format_error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(unknown_format_error)
+        ) from unknown_format_error
+    return _artifact_response(artifact)
+
+
 @router.patch("/conversations/{session_id}", response_model=AgentConversationResponse)
 def rename_agent_conversation(
     session_id: str,
@@ -134,6 +178,28 @@ def _verify_chat_access(conversation_service, session_id, current_user) -> None:
         conversation_service.verify_chat_access(session_id, current_user)
     except ConversationAccessError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+def _require_conversation(conversation_service, session_id, current_user):
+    conversation = conversation_service.get_conversation(session_id, current_user)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+def _artifact_response(artifact: ExportArtifact) -> Response:
+    encoded_name = quote(artifact.filename)
+    return Response(
+        content=artifact.content,
+        media_type=artifact.media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{artifact.filename}"; '
+                f"filename*=UTF-8''{encoded_name}"
+            ),
+            "Content-Length": str(len(artifact.content)),
+        },
+    )
 
 
 def _stream_agent_content(stream):
