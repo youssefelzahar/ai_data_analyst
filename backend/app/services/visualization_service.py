@@ -13,7 +13,11 @@ from app.schemas.visualization_schema import (
     VisualizationBundle,
 )
 from app.services.json_safe import to_json_safe
-from app.services.dataset_operations_service import AggregationSpec, DatasetOperationsService
+from app.services.dataset_operations_service import (
+    AggregationSpec,
+    DatasetOperationsService,
+    UnsupportedAggregationError,
+)
 from app.services.profiling.service import DataProfileService
 
 
@@ -126,6 +130,11 @@ class VisualizationService:
         visualization_request: VisualizationRequest,
     ) -> list[KpiCardArtifact]:
         normalized_request = visualization_request.user_request.lower()
+        numeric_columns = [
+            column
+            for column in dataframe.columns
+            if pd.api.types.is_numeric_dtype(dataframe[column])
+        ]
         requested: list[KpiCardArtifact] = []
         for operation, keywords in {
             "sum": ("sum", "total"),
@@ -137,28 +146,50 @@ class VisualizationService:
         }.items():
             if not any(keyword in normalized_request for keyword in keywords):
                 continue
-            column_name = _find_matching_column(normalized_request, dataframe.columns)
-            if operation == "count" and column_name is None:
-                result = self._dataset_operations_service.aggregate(
-                    data_source,
-                    [AggregationSpec(operation="count")],
-                    visualization_request.table_name,
-                    visualization_request.version_id,
-                )
-                value = next(iter(result["results"].values()))
-                requested.append(self._kpi("Count Rows", f"{value:,}" if isinstance(value, int) else str(value)))
-                continue
-            if column_name is None:
-                continue
+            if operation == "count":
+                column_name = _find_matching_column(normalized_request, dataframe.columns)
+                if column_name is None:
+                    result = self._dataset_operations_service.aggregate(
+                        data_source,
+                        [AggregationSpec(operation="count")],
+                        visualization_request.table_name,
+                        visualization_request.version_id,
+                    )
+                    value = next(iter(result["results"].values()))
+                    requested.append(self._kpi("Count Rows", f"{value:,}" if isinstance(value, int) else str(value)))
+                    continue
+            else:
+                # sum/avg/min/max/median only apply to numeric columns; if the
+                # request names only non-numeric columns, skip the KPI instead
+                # of failing the whole dashboard.
+                column_name = _find_matching_column(normalized_request, numeric_columns)
+                if column_name is None:
+                    continue
+            kpi_card = self._safe_aggregation_kpi(
+                data_source, operation, column_name, visualization_request
+            )
+            if kpi_card is not None:
+                requested.append(kpi_card)
+        return requested
+
+    def _safe_aggregation_kpi(
+        self,
+        data_source: DataSource,
+        operation: str,
+        column_name: str,
+        visualization_request: VisualizationRequest,
+    ) -> KpiCardArtifact | None:
+        try:
             aggregation_result = self._dataset_operations_service.aggregate(
                 data_source,
                 [AggregationSpec(operation=operation, column_name=column_name)],
                 visualization_request.table_name,
                 visualization_request.version_id,
             )
-            alias, value = next(iter(aggregation_result["results"].items()))
-            requested.append(self._kpi(alias.replace("_", " ").title(), str(value)))
-        return requested
+        except UnsupportedAggregationError:
+            return None
+        alias, value = next(iter(aggregation_result["results"].items()))
+        return self._kpi(alias.replace("_", " ").title(), str(value))
 
     def _build_chart(
         self,
